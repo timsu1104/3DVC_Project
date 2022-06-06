@@ -22,9 +22,9 @@ def create_logger(log_file):
     logging.basicConfig(level=logging.INFO, format=log_format, filename=log_file)    # filename: build a FileHandler
     return logger
 
-def init(Method, split='train'):
+def init(split='train'):
     log_file = os.path.join(
-        'exp/' + Method + '/' + split + '-{}.log'.format(time.strftime("%Y%m%d_%H%M%S", time.localtime()))
+        'exp/' + split + '-{}.log'.format(time.strftime("%Y%m%d_%H%M%S", time.localtime()))
     )
     if not os.path.exists(os.path.dirname(log_file)):
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
