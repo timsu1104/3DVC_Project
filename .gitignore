@@ -1,0 +1,11 @@
+/.vscode
+/datasets/*
+!/datasets/*.py
+/example
+/submission
+/scripts/*.sh
+/outputs
+/torchsparse-1.2.0
+*.zip
+/exp
+__pycache__/
