@@ -15,8 +15,11 @@ class Dataset:
         self.val_workers = 4
     
     def trainLoader(self, logger):
-        rgbs, depths, labels, intrinsics = torch.load('datasets/train.pth')
-        self.train_files = [[rgb, depth, label, intrinsic] for rgb, depth, label, intrinsic in tzip(rgbs, depths, labels, intrinsics)]
+        f_train = sorted(glob.glob(os.path.join('datasets/training_data/data/train', "*_data_aggregated.pth")))
+        self.train_files = []
+        for f in f_train:
+            rgbs, depths, labels, intrinsics = torch.load(f)
+            self.train_files += [[rgb, depth, label, intrinsic] for rgb, depth, label, intrinsic in tzip(rgbs, depths, labels, intrinsics)]
 
         logger.info('Training samples: {}'.format(len(self.train_files)))
         assert len(self.train_files) > 0
@@ -25,8 +28,11 @@ class Dataset:
         self.train_data_loader = DataLoader(train_set, batch_size=self.batch_size, collate_fn=self.trainMerge, num_workers=self.train_workers, shuffle=True, sampler=None, drop_last=True, pin_memory=True)    
     
     def valLoader(self, logger):
-        rgbs, depths, labels, intrinsics = torch.load('datasets/val.pth')
-        self.val_files = [[rgb, depth, label, intrinsic] for rgb, depth, label, intrinsic in tzip(rgbs, depths, labels, intrinsics)]
+        f_val = sorted(glob.glob(os.path.join('datasets/training_data/data/val', "*_data_aggregated.pth")))
+        self.val_files = []
+        for f in f_val:
+            rgbs, depths, labels, intrinsics = torch.load(f)
+            self.val_files += [[rgb, depth, label, intrinsic] for rgb, depth, label, intrinsic in tzip(rgbs, depths, labels, intrinsics)]
 
         logger.info('Validation samples: {}'.format(len(self.val_files)))
         assert len(self.val_files) > 0
@@ -35,8 +41,11 @@ class Dataset:
         self.val_data_loader = DataLoader(val_set, batch_size=self.batch_size, collate_fn=self.valMerge, num_workers=self.val_workers, shuffle=True, sampler=None, drop_last=True, pin_memory=True)    
     
     def testLoader(self, logger):
-        rgbs, depths, labels, intrinsics = torch.load('datasets/test.pth')
-        self.test_files = [[rgb, depth, intrinsic] for rgb, depth, intrinsic in tzip(rgbs, depths, intrinsics)]
+        f_test = sorted(glob.glob(os.path.join('datasets/testing_data/data/test', "*_data_aggregated.pth")))
+        self.test_files = []
+        for f in f_test:
+            rgbs, depths, labels, intrinsics = torch.load(f)
+            self.test_files += [[rgb, depth, label, intrinsic] for rgb, depth, label, intrinsic in tzip(rgbs, depths, labels, intrinsics)]
 
         logger.info('Testing samples: {}'.format(len(self.test_files)))
         assert len(self.test_files) > 0

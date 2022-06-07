@@ -39,6 +39,8 @@ cd ..
 
 ```bash
 cd datasets
+python Combine_data.py
+python Combine_data.py --data_split test
 python prepare_data.py
 cd ..
 ```
