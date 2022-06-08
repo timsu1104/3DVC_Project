@@ -105,9 +105,11 @@ if __name__ == '__main__':
 
     ##### dataset
     dataset_ = Dataset()
-    dataset_.trainLoader(logger, LBL, TOY)
-    dataset_.valLoader(logger, LBL, TOY)
+    dataset_.trainLoader(logger)
+    dataset_.valLoader(logger)
     end_data = time.time()
+    logger.info("Data Loading time {}".format(end_data - end_init))
+    exit(0)
     
     ##### resume
     start_epoch = checkpoint_restore(model, exp_path, TAG, logger, use_cuda)      # resume from the latest epoch, or specify the epoch to restore

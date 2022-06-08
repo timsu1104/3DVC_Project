@@ -1,7 +1,21 @@
-from genericpath import exists
-import numpy as np, torch
-import os, glob, argparse
+'''
+Modified from SparseConvNet data preparation: https://github.com/facebookresearch/SparseConvNet/blob/master/examples/ScanNet/prepare_data.py
+'''
+
+import os, glob, numpy as np, multiprocessing as mp, torch, argparse
+import torch
 from tqdm import tqdm
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--data_split', help='data split (train/val/ test)', default='train')
+parser.add_argument('--maxl', help='the length in one data file', type=int, default=2000)
+opt = parser.parse_args()
+
+split = opt.data_split
+MAXLENGTH = opt.maxl
+NUM_OBJECTS = 79
+print('data split: {}'.format(split))
 
 training_data_dir = "training_data/data"
 testing_data_dir = "testing_data/data"
@@ -17,67 +31,46 @@ def get_split_files(split_name):
         files = [p + "_datas.pth" for p in prefix]
     return files
 
-def Aggregate_data(split_name: str) -> None:
-    print("Split: {}".format(split_name))
-    if split_name == 'test':
-        split_prefix = os.path.join(testing_data_dir, split_name)
-        if os.path.exists(split_prefix) == False:
-            os.mkdir(split_prefix)
-        files = get_split_files(split_name)
-        splits = (len(files) + 1) // MAXLENGTH
-        for i in range(splits):
-            fn = os.path.join(split_prefix, str(i) + '_data_aggregated.pth')
-            rgbs = []
-            depths = []
-            intrinsics = []
-            for file in tqdm(files[i * MAXLENGTH : min((i + 1) * MAXLENGTH, len(files))]):
-                rgb, depth, intrinsic = torch.load(file)
-                rgbs.append(rgb)
-                depths.append(depth)
-                intrinsics.append(intrinsic)
-            rgbs = np.stack(rgbs, axis=0)
-            depths = np.stack(depths, axis=0)
-            intrinsics = np.stack(intrinsics, axis=0)
-            rgbs = torch.tensor(rgbs)
-            depths = torch.tensor(depths)
-            intrinsics = torch.tensor(intrinsics)
-            torch.save((rgbs, depths, intrinsics), fn)
-        
-    else:
-        split_prefix = os.path.join(training_data_dir, split_name)
-        if os.path.exists(split_prefix) == False:
-            os.mkdir(split_prefix)
-        files = get_split_files(split_name)
-        splits = (len(files) + 1) // MAXLENGTH
-        print("files {}\nsplits {}".format(len(files), splits))
-        for i in range(splits):
-            fn = os.path.join(split_prefix, str(i) + '_data_aggregated.pth')
-            rgbs = []
-            depths = []
-            labels = []
-            intrinsics = []
-            for file in tqdm(files[i * MAXLENGTH : min((i + 1) * MAXLENGTH, len(files))]):
-                rgb, depth, label, intrinsic = torch.load(file)
-                rgbs.append(rgb)
-                depths.append(depth)
-                labels.append(label)
-                intrinsics.append(intrinsic)
-            rgbs = np.stack(rgbs, axis=0)
-            depths = np.stack(depths, axis=0)
-            labels = np.stack(labels, axis=0)
-            intrinsics = np.stack(intrinsics, axis=0)
-            rgbs = torch.tensor(rgbs)
-            depths = torch.tensor(depths)
-            labels = torch.tensor(labels)
-            intrinsics = torch.tensor(intrinsics)
-            torch.save((rgbs, depths, labels, intrinsics), fn)
+files = get_split_files(split)
+split_prefix = os.path.join(testing_data_dir, split) if split == 'test' else os.path.join(training_data_dir, split)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--maxl', help='the length in one data file', type=int, default=10000)
-    opt = parser.parse_args()
+def f(fn):
+    """
+    fn: os.path.join(split_prefix, str(i) + '_data_aggregated.pth')
+    """
+    i = int(fn.split('/')[-1].split('_')[0])
+    datas = files[i * MAXLENGTH : min((i + 1) * MAXLENGTH, len(files))]
 
-    MAXLENGTH = opt.maxl
-    Aggregate_data('train')
-    Aggregate_data('val')
-    Aggregate_data('test')
+    new_data = []
+    for f in datas:
+        data = torch.load(f)
+        if split != 'test':
+            rgb, depth, label, intrinsic = data
+            box = [] # NumBoxes, 5
+            sem = np.unique(label)
+            sem = [i for i in sem if i < NUM_OBJECTS]
+            for sem_label in sem:
+                x, y = np.where(label == sem_label)
+                box.append([x.min(), y.min(), x.max(), y.max(), sem_label])
+            data = rgb, depth, label, intrinsic, box
+        new_data.append(data)
+        print('Processed ' + f)
+                
+    torch.save(new_data, fn)
+    print('Saving to ' + fn)
+
+splits = (len(files) + 1) // MAXLENGTH
+target_files = [os.path.join(split_prefix, str(i) + '_data_aggregated.pth') for i in range(splits)]
+if os.path.exists(split_prefix) == False:
+    os.mkdir(split_prefix)
+
+p = mp.Pool(processes=mp.cpu_count()//2) # Use all CPUs available
+p.map(f, target_files)
+p.close()
+p.join()
+
+"""
+python prepare_data.py --data_split train
+python prepare_data.py --data_split val
+python prepare_data.py --data_split test
+"""

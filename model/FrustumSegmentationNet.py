@@ -1,30 +1,17 @@
 import torch, torch.nn as nn
+from minkunet import MinkUNet as SegmentModule
+import torchsparse
+import torchsparse.nn as spnn
+from torchsparse import PointTensor
+from torchsparse.utils import sparse_collate
+
+sys.path.append(os.getcwd())
+from utils.spvcnn_utils import *
 
 class FrustumSegmentationNet(nn.Module):
     def __init__(self) -> None:
         super(FrustumSegmentationNet, self).__init__()
-        self.conv1 = torch.nn.Conv1d(6, 64, 1)
-        self.conv2 = torch.nn.Conv1d(64, 128, 1)
-        self.conv3 = torch.nn.Conv1d(128, 1024, 1)
-        self.bn1 = nn.BatchNorm1d(64)
-        self.bn2 = nn.BatchNorm1d(128)
-        self.bn3 = nn.BatchNorm1d(1024)
-
-        self.dense1 = torch.nn.Linear(1024, 512)
-        self.bn4 = nn.BatchNorm1d(512)
-        self.dense2 = torch.nn.Linear(512, 256)
-        self.bn5 = nn.BatchNorm1d(256)
-        self.dense3 = torch.nn.Linear(256, 3 + 6)
-
-        for net in [
-            self.conv1,
-            self.conv2,
-            self.conv3,
-            self.dense1,
-            self.dense2,
-            self.dense3,
-        ]:
-            torch.nn.init.xavier_uniform_(net.weight)
+        self.segment = SegmentModule(in_channels=3, voxel_size=0.2, num_classes=2)
 
     def image2pc(self, depth, intrinsic):
         """
@@ -36,21 +23,30 @@ class FrustumSegmentationNet(nn.Module):
         coords = uv1 @ torch.linalg.inv(intrinsic).T * z[..., None]  # [H, W, 3]
         return coords
 
-    def forward(self, rgb, depth, intrinsic):
+    def forward(self, rgb, depth, intrinsic, box):
         """
         Parameters
         ------------
         rgb: torch.Tensor, (BatchSize, H, W, 3)
         depth: torch.Tensor, (BatchSize, H, W)
         intrinsic: torch.Tensor, (BatchSize, 3, 3)
+        box: boxes, (BatchSize, M, 5)
         
         Return
         ---------
         label: torch.Tensor, (BatchSize, H, W)
         """
-        ### TODO: encode rgb to get frustum proposal
-
+        label = torch.ones_like(rgb)
         ### TODO: Crop depth and segment
+        for x1, y1, x2, y2, lbl in box:
+            cropped_pc = self.image2pc(depth[x1 : x1 + 1, y1 : y2 + 1], intrinsic)
+            coords, feats = sparse_collate([cropped_pc], [rgb[x1 : y1 + 1, x2 : y2 + 1]], coord_float=True)
+            x = PointTensor(feats, coords).cuda()
+            output = self.segment(x)
+            xind, yind = (output == 1)
+            xind += x1
+            yind += y1
+            label[xind, yind] = lbl
 
         ### TODO: Combine
         
@@ -60,11 +56,12 @@ def model_fn_decorator(test=False):
         rgb = batch['rgb'].cuda()
         depth = batch['depth'].cuda()
         intrinsic = batch['meta'].cuda()
+        box = batch['box'].cuda()
         gt = batch['gt'].cuda()
 
         Criterion = nn.CrossEntropyLoss(reduction='none')
 
-        pred = model(rgb, depth, intrinsic)
+        pred = model(rgb, depth, intrinsic, box)
         loss = Criterion(pred, gt)
 
         return loss, pred
@@ -74,7 +71,7 @@ def model_fn_decorator(test=False):
         depth = batch['depth'].cuda()
         intrinsic = batch['meta'].cuda()
 
-        pred = model(rgb, depth, intrinsic)
+        pred = model(rgb, depth, intrinsic, test=True)
 
         return pred
 
