@@ -2,75 +2,85 @@
 Modified from SparseConvNet data preparation: https://github.com/facebookresearch/SparseConvNet/blob/master/examples/ScanNet/prepare_data.py
 '''
 
-import os, glob, numpy as np, multiprocessing as mp, torch, argparse
+import glob, numpy as np, multiprocessing as mp, torch, argparse
 import torch
-from tqdm import tqdm
+from PIL import Image
+import pickle
 
+NUM_OBJECTS = 79
+
+def load_pickle(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_split', help='data split (train/val/ test)', default='train')
-parser.add_argument('--maxl', help='the length in one data file', type=int, default=2000)
+parser.add_argument('--data_split', help='data split (train/ test)', default='train')
 opt = parser.parse_args()
 
 split = opt.data_split
-MAXLENGTH = opt.maxl
-NUM_OBJECTS = 79
 print('data split: {}'.format(split))
+files = sorted(glob.glob(split + 'ing_data/data/*_color_kinect.png'))
+files2 = sorted(glob.glob(split + 'ing_data/data/*_depth_kinect.png'))
+if split == 'train':
+    files3 = sorted(glob.glob(split + 'ing_data/data/*_label_kinect.png'))
+files4 = sorted(glob.glob(split + 'ing_data/data/*_meta.pkl'))
+assert len(files) == len(files2)
+if split == 'train':
+    assert len(files) == len(files3)
 
-training_data_dir = "training_data/data"
-testing_data_dir = "testing_data/data"
-split_dir = "training_data/splits"
+def f_test(fn):
+    fn2 = fn[:-16] + 'depth_kinect.png'
+    fn4 = fn[:-16] + 'meta.pkl'
+    rgb = np.array(Image.open(fn)) / 255   # convert 0-255 to 0-1
+    depth = np.array(Image.open(fn2)) / 1000   # convert from mm to m
+    meta = load_pickle(fn4)
+    intrinsic = meta['intrinsic']
 
-def get_split_files(split_name):
-    if split_name == 'test':
-        files = sorted(glob.glob(os.path.join(testing_data_dir, '*_datas.pth')))
-        return files
+    rgb = torch.tensor(rgb, dtype=torch.float32)
+    depth = torch.tensor(depth, dtype=torch.float32)
+    intrinsic = torch.tensor(intrinsic, dtype=torch.float32)
 
-    with open(os.path.join(split_dir, f"{split_name}.txt"), 'r') as f:
-        prefix = [os.path.join(training_data_dir, line.strip()) for line in f if line.strip()]
-        files = [p + "_datas.pth" for p in prefix]
-    return files
+    torch.save((rgb, depth, intrinsic), fn[:-16]+'datas.pth')
+    print('Saving to ' + fn[:-16]+'datas.pth')
 
-files = get_split_files(split)
-split_prefix = os.path.join(testing_data_dir, split) if split == 'test' else os.path.join(training_data_dir, split)
 
 def f(fn):
-    """
-    fn: os.path.join(split_prefix, str(i) + '_data_aggregated.pth')
-    """
-    i = int(fn.split('/')[-1].split('_')[0])
-    datas = files[i * MAXLENGTH : min((i + 1) * MAXLENGTH, len(files))]
+    fn2 = fn[:-16] + 'depth_kinect.png'
+    fn3 = fn[:-16] + 'label_kinect.png'
+    fn4 = fn[:-16] + 'meta.pkl'
+    print(fn)
 
-    new_data = []
-    for f in datas:
-        data = torch.load(f)
-        if split != 'test':
-            rgb, depth, label, intrinsic = data
-            box = [] # NumBoxes, 5
-            sem = np.unique(label)
-            sem = [i for i in sem if i < NUM_OBJECTS]
-            for sem_label in sem:
-                x, y = np.where(label == sem_label)
-                box.append([x.min(), y.min(), x.max(), y.max(), sem_label])
-            data = rgb, depth, label, intrinsic, box
-        new_data.append(data)
-        print('Processed ' + f)
-                
-    torch.save(new_data, fn)
-    print('Saving to ' + fn)
+    rgb = np.array(Image.open(fn)) / 255   # convert 0-255 to 0-1
+    depth = np.array(Image.open(fn2)) / 1000   # convert from mm to m
+    label = np.array(Image.open(fn3))
+    meta = load_pickle(fn4)
+    intrinsic = meta['intrinsic']
 
-splits = (len(files) + 1) // MAXLENGTH
-target_files = [os.path.join(split_prefix, str(i) + '_data_aggregated.pth') for i in range(splits)]
-if os.path.exists(split_prefix) == False:
-    os.mkdir(split_prefix)
+    box = [] # NumBoxes, 5
+    sem = np.unique(label)
+    sem = [i for i in sem if i < NUM_OBJECTS]
+    for sem_label in sem:
+        x, y = np.where(label == sem_label)
+        box.append([x.min(), y.min(), x.max(), y.max(), sem_label])
+
+    rgb = torch.tensor(rgb, dtype=torch.float32)
+    depth = torch.tensor(depth, dtype=torch.float32)
+    intrinsic = torch.tensor(intrinsic, dtype=torch.float32)
+    label = torch.tensor(label, dtype=torch.int)
+    box = torch.tensor(box, dtype=torch.float32)
+
+    torch.save((rgb, depth, label, intrinsic, box), fn[:-16]+'datas.pth')
+    print('Saving to ' + fn[:-16]+'datas.pth')
 
 p = mp.Pool(processes=mp.cpu_count()//2) # Use all CPUs available
-p.map(f, target_files)
+if opt.data_split == 'test':
+    p.map(f_test, files)
+else:
+    p.map(f, files)
 p.close()
 p.join()
 
 """
 python prepare_data.py --data_split train
-python prepare_data.py --data_split val
 python prepare_data.py --data_split test
 """
