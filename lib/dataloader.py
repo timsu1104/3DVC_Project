@@ -21,7 +21,7 @@ class Dataset:
             f_train = get_split_files('train', prefix="datasets/")
             self.train_files = [torch.load(data) for data in tqdm(f_train[:100])]
         else:
-            f_train = sorted(glob.glob(os.path.join('datasets/training_data/data/train', "*_data_aggregated.pth")))
+            f_train = sorted(glob.glob(os.path.join('datasets/training_data/data/train', "1*_data_aggregated.pth")))
             self.train_files = []
             for f in f_train:
                 print("Loading", f)

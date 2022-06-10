@@ -17,6 +17,7 @@ class FrustumSegmentationNet(nn.Module):
             nn.Linear(256, 1024),
             nn.ReLU()
         )
+        self.getlabel = nn.Linear(1024, 82)
         self.h = nn.Sequential(
             nn.Linear(2048, 256),
             nn.ReLU(),
@@ -51,27 +52,43 @@ class FrustumSegmentationNet(nn.Module):
         label: torch.Tensor, (BatchSize, H, W)
         """
         labels = []
-        ### TODO: Crop depth and segment
         for bind, single_box in enumerate(box):
-            # print(single_box)
-            label = torch.zeros((79, *rgb.shape[1:-1])).cuda()
-            for x1, y1, x2, y2, lbl in single_box.long():
+            label = torch.zeros((82, *rgb.shape[1:-1])).cuda()
+            single_box = single_box.cuda().long()
+            for x1, y1, x2, y2, _ in single_box:
                 if x2 <= x1 or y2 <= y1:
                     continue
+
+                # Cropping and lifting
                 cropped_pc = self.image2pc(depth[bind, x1 : x2, y1 : y2], intrinsic[bind])
+
+                # 3D PointCloud Segmentation
                 x = torch.cat([cropped_pc, rgb[bind, x1 : x2, y1 : y2]], dim=-1)
                 orig_shape = x.shape[:-1]
                 x = self.f(x).view(-1, 1024)
                 global_feats = torch.max(x, dim=0)[0]
+                lbl = self.getlabel(global_feats)
                 x = torch.cat([x, torch.repeat_interleave(global_feats.unsqueeze(0), x.size(0), dim=0)], dim=1)
                 x = self.h(x).view((*orig_shape, -1))
+
+                # Extract Segmentation
                 seg = torch.nonzero(torch.argmax(x, dim=-1) == 1)
+                torch._assert(
+                    x.size(-1) == 2,
+                    "x.size is {}, x is ".format(x.shape, x)
+                )
                 if seg.size(0) == 0:
+                    print("2 continue")
                     continue
                 xind, yind = seg[:, 0], seg[:, 1]
                 xind += x1
                 yind += y1
-                label[lbl, xind, yind] = 1.
+
+                # Scaling by Kernel
+                center = torch.stack([x1 + x2, y1 + y2]).float() / 2
+                kernel = 1 / torch.norm(seg - center, p=2, dim=1)
+
+                label[:, xind, yind] = label[:, xind, yind] + lbl.unsqueeze(1) * kernel
             labels.append(label)
         labels = torch.stack(labels, 0)
 
@@ -86,7 +103,7 @@ def model_fn_decorator(test=False):
         box = batch['box']
         gt = batch['gt'].cuda().long()
 
-        Criterion = nn.CrossEntropyLoss(reduction='none')
+        Criterion = nn.CrossEntropyLoss()
 
         pred = model(rgb, depth, intrinsic, box)
         loss = Criterion(pred, gt)

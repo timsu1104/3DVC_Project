@@ -1,6 +1,6 @@
 import torch, torch.optim as optim
 from torchvision.models.detection import fasterrcnn_resnet50_fpn as ProposalModule
-from torchvision.models.detection import FasterRCNN_ResNet50_FPN_Weights as init_weight
+# from torchvision.models.detection import FasterRCNN_ResNet50_FPN_Weights as init_weight
 import argparse, sys, os
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
@@ -9,7 +9,6 @@ import time
 sys.path.append(os.getcwd())
 from utils.util import checkpoint_save, checkpoint_restore
 from utils.log import init
-from utils.eval import evaluate
 
 Total_epochs = 300
 
@@ -20,24 +19,23 @@ def train_epoch(train_loader, model, optimizer, exp_path, epoch):
         torch.cuda.empty_cache()
 
         rgb = batch['rgb'].cuda()
-        depth = batch['depth'].cuda()
-        intrinsic = batch['meta'].cuda()
-        box = batch['box'].cuda()
-        gt = batch['gt'].cuda()
+        box = batch['box']
 
         input_image = rgb.permute(0, 3, 1, 2)
         images = [image for image in input_image]
         targets = []
         for i in range(len(images)):
             d = {}
-            d['boxes'] = box[i, :4]
-            d['labels'] = box[i, 4]
+            # print(box.shape)
+            # print(box[i, :, :4])
+            d['boxes'] = box[i][:, :4].cuda()
+            d['labels'] = box[i][:, 4].cuda().long()
             targets.append(d)
 
         ##### prepare input and forward
         loss = 0
         output = model(images, targets)
-        for k, v in output.item():
+        for k, v in output.items():
             loss += v
 
         ##### backward
@@ -56,6 +54,12 @@ def train_epoch(train_loader, model, optimizer, exp_path, epoch):
     checkpoint_save(model, exp_path, 'FPN', logger, epoch, 16, use_cuda)
 
 if __name__ == '__main__':
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--toy', action='store_true', default=False, help="")
+    opt = parser.parse_args()
+    TOY = opt.toy
+
     exp_path = os.path.join('exp/FPN')
 
     start = time.time()
@@ -67,7 +71,8 @@ if __name__ == '__main__':
     writer = SummaryWriter(exp_path)
 
     from lib.dataloader import Dataset
-    model = ProposalModule(weights=init_weight.DEFAULT)
+    # model = ProposalModule(weights=init_weight.DEFAULT)
+    model = ProposalModule(num_classes=82)
 
     use_cuda = torch.cuda.is_available()
     logger.info('cuda available: {}'.format(use_cuda))
@@ -85,8 +90,8 @@ if __name__ == '__main__':
 
     ##### dataset
     dataset_ = Dataset()
-    dataset_.trainLoader(logger)
-    dataset_.valLoader(logger)
+    dataset_.trainLoader(logger, TOY)
+    dataset_.valLoader(logger, TOY)
     end_data = time.time()
     logger.info("Data Loading time {}".format(end_data - end_init))
     
@@ -97,3 +102,7 @@ if __name__ == '__main__':
     for epoch in range(start_epoch, Total_epochs+1):
         print("Epoch {}........".format(epoch))
         train_epoch(dataset_.train_data_loader, model, optimizer, exp_path, epoch)
+
+"""
+python scripts/Proposal_train.py
+"""

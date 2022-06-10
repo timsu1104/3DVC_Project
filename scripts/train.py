@@ -69,7 +69,7 @@ if __name__ == '__main__':
     parser.add_argument('--toy', action='store_true', default=False, help="")
     opt = parser.parse_args()
     TAG = opt.tag
-    TOY = opt.tag
+    TOY = opt.toy
     exp_path = os.path.join('exp/FrustumSegmentationNet', TAG)
 
     start = time.time()
