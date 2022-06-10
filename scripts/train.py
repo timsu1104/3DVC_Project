@@ -66,13 +66,11 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--tag', help='', default='')
-    parser.add_argument('--label', help='0-78', default='0')
     parser.add_argument('--toy', action='store_true', default=False, help="")
     opt = parser.parse_args()
     TAG = opt.tag
-    LBL = opt.label
-    TOY = opt.toy
-    exp_path = os.path.join('exp/FrustumSegmentationNet', TAG, LBL)
+    TOY = opt.tag
+    exp_path = os.path.join('exp/FrustumSegmentationNet', TAG)
 
     start = time.time()
     global logger
@@ -101,15 +99,14 @@ if __name__ == '__main__':
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
 
     end_init = time.time()
-    logger.info("Initialization time {}".format(end_init - start))
+    logger.info("Initialization time {}s".format(end_init - start))
 
     ##### dataset
     dataset_ = Dataset()
-    dataset_.trainLoader(logger)
-    dataset_.valLoader(logger)
+    dataset_.trainLoader(logger, TOY)
+    dataset_.valLoader(logger, TOY)
     end_data = time.time()
-    logger.info("Data Loading time {}".format(end_data - end_init))
-    exit(0)
+    logger.info("Data Loading time {}s".format(end_data - end_init))
     
     ##### resume
     start_epoch = checkpoint_restore(model, exp_path, TAG, logger, use_cuda)      # resume from the latest epoch, or specify the epoch to restore
@@ -124,3 +121,7 @@ if __name__ == '__main__':
     
     if start_epoch == Total_epochs + 1:
         eval_epoch(dataset_.val_data_loader, model, model_fn, Total_epochs)
+
+"""
+python scripts/train.py --tag test
+"""

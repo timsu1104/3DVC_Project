@@ -43,8 +43,8 @@ if __name__ == '__main__':
     global writer
     writer = SummaryWriter(exp_path)
 
-    from model.pointnet import PointNet as Network
-    from model.pointnet import model_fn_decorator
+    from model.FrustumSegmentationNet import FrustumSegmentationNet as Network
+    from model.FrustumSegmentationNet import model_fn_decorator
     from lib.dataloader import Dataset
     
     model = Network()

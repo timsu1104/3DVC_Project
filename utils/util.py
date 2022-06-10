@@ -1,6 +1,20 @@
 import os, glob
 import torch
 
+training_data_dir = "training_data/data"
+testing_data_dir = "testing_data/data"
+split_dir = "training_data/splits"
+
+def get_split_files(split_name, prefix=""):
+    if split_name == 'test':
+        files = sorted(glob.glob(os.path.join(prefix + testing_data_dir, '*_datas.pth')))
+        return files
+
+    with open(os.path.join(prefix + split_dir, f"{split_name}.txt"), 'r') as f:
+        prefix = [os.path.join(prefix + training_data_dir, line.strip()) for line in f if line.strip()]
+        files = [p + "_datas.pth" for p in prefix]
+    return files
+
 def checkpoint_save(model, exp_path, task_name, logger, epoch, save_freq=16, use_cuda=True):
     f = exp_path+'/'+task_name+'-%09d'%epoch + '.pth'
     logger.info('Saving ' + f)

@@ -1,9 +1,8 @@
 import torch, torch.nn as nn
-from minkunet import MinkUNet as SegmentModule
-import torchsparse
-import torchsparse.nn as spnn
+import numpy as np
 from torchsparse import PointTensor
 from torchsparse.utils import sparse_collate
+import sys, os
 
 sys.path.append(os.getcwd())
 from utils.spvcnn_utils import *
@@ -11,14 +10,29 @@ from utils.spvcnn_utils import *
 class FrustumSegmentationNet(nn.Module):
     def __init__(self) -> None:
         super(FrustumSegmentationNet, self).__init__()
-        self.segment = SegmentModule(in_channels=3, voxel_size=0.2, num_classes=2)
+        # self.segment = SegmentModule(in_channels=3, voxel_size=0.2, num_classes=2)
+        self.f = nn.Sequential(
+            nn.Linear(6, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1024),
+            nn.ReLU()
+        )
+        self.h = nn.Sequential(
+            nn.Linear(2048, 256),
+            nn.ReLU(),
+            nn.Linear(256, 2)
+        )
 
     def image2pc(self, depth, intrinsic):
         """
         Takes in the cropped depth and intrinsic data, return the pointcloud. 
         """
         z = depth
-        v, u = torch.indices(z.shape)
+        # print(z.shape)
+        v, u = np.indices(z.shape)
+        v = torch.from_numpy(v).cuda()
+        u = torch.from_numpy(u).cuda()
+        # v, u = torch.from_numpy(np.indices(z.shape)).cuda()
         uv1 = torch.stack([u + 0.5, v + 0.5, torch.ones_like(z)], axis=-1)
         coords = uv1 @ torch.linalg.inv(intrinsic).T * z[..., None]  # [H, W, 3]
         return coords
@@ -30,25 +44,38 @@ class FrustumSegmentationNet(nn.Module):
         rgb: torch.Tensor, (BatchSize, H, W, 3)
         depth: torch.Tensor, (BatchSize, H, W)
         intrinsic: torch.Tensor, (BatchSize, 3, 3)
-        box: boxes, (BatchSize, M, 5)
+        box: List[torch.Tensor], (BatchSize, M, 5)
         
         Return
         ---------
         label: torch.Tensor, (BatchSize, H, W)
         """
-        label = torch.ones_like(rgb)
+        labels = []
         ### TODO: Crop depth and segment
-        for x1, y1, x2, y2, lbl in box:
-            cropped_pc = self.image2pc(depth[x1 : x1 + 1, y1 : y2 + 1], intrinsic)
-            coords, feats = sparse_collate([cropped_pc], [rgb[x1 : y1 + 1, x2 : y2 + 1]], coord_float=True)
-            x = PointTensor(feats, coords).cuda()
-            output = self.segment(x)
-            xind, yind = (output == 1)
-            xind += x1
-            yind += y1
-            label[xind, yind] = lbl
+        for bind, single_box in enumerate(box):
+            # print(single_box)
+            label = torch.zeros((79, *rgb.shape[1:-1])).cuda()
+            for x1, y1, x2, y2, lbl in single_box.long():
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                cropped_pc = self.image2pc(depth[bind, x1 : x2, y1 : y2], intrinsic[bind])
+                x = torch.cat([cropped_pc, rgb[bind, x1 : x2, y1 : y2]], dim=-1)
+                orig_shape = x.shape[:-1]
+                x = self.f(x).view(-1, 1024)
+                global_feats = torch.max(x, dim=0)[0]
+                x = torch.cat([x, torch.repeat_interleave(global_feats.unsqueeze(0), x.size(0), dim=0)], dim=1)
+                x = self.h(x).view((*orig_shape, -1))
+                seg = torch.nonzero(torch.argmax(x, dim=-1) == 1)
+                if seg.size(0) == 0:
+                    continue
+                xind, yind = seg[:, 0], seg[:, 1]
+                xind += x1
+                yind += y1
+                label[lbl, xind, yind] = 1.
+            labels.append(label)
+        labels = torch.stack(labels, 0)
 
-        ### TODO: Combine
+        return labels
         
 
 def model_fn_decorator(test=False):
@@ -56,8 +83,8 @@ def model_fn_decorator(test=False):
         rgb = batch['rgb'].cuda()
         depth = batch['depth'].cuda()
         intrinsic = batch['meta'].cuda()
-        box = batch['box'].cuda()
-        gt = batch['gt'].cuda()
+        box = batch['box']
+        gt = batch['gt'].cuda().long()
 
         Criterion = nn.CrossEntropyLoss(reduction='none')
 
@@ -70,8 +97,9 @@ def model_fn_decorator(test=False):
         rgb = batch['rgb'].cuda()
         depth = batch['depth'].cuda()
         intrinsic = batch['meta'].cuda()
+        box = batch['box']
 
-        pred = model(rgb, depth, intrinsic, test=True)
+        pred = model(rgb, depth, intrinsic, box)
 
         return pred
 

@@ -2,9 +2,11 @@
 Modified from SparseConvNet data preparation: https://github.com/facebookresearch/SparseConvNet/blob/master/examples/ScanNet/prepare_data.py
 '''
 
-import os, glob, numpy as np, multiprocessing as mp, torch, argparse
+import os, sys, multiprocessing as mp, torch, argparse
 import torch
-from tqdm import tqdm
+
+sys.path.append("..")
+from utils.util import get_split_files
 
 
 parser = argparse.ArgumentParser()
@@ -20,16 +22,6 @@ print('data split: {}'.format(split))
 training_data_dir = "training_data/data"
 testing_data_dir = "testing_data/data"
 split_dir = "training_data/splits"
-
-def get_split_files(split_name):
-    if split_name == 'test':
-        files = sorted(glob.glob(os.path.join(testing_data_dir, '*_datas.pth')))
-        return files
-
-    with open(os.path.join(split_dir, f"{split_name}.txt"), 'r') as f:
-        prefix = [os.path.join(training_data_dir, line.strip()) for line in f if line.strip()]
-        files = [p + "_datas.pth" for p in prefix]
-    return files
 
 files = get_split_files(split)
 split_prefix = os.path.join(testing_data_dir, split) if split == 'test' else os.path.join(training_data_dir, split)
@@ -89,7 +81,8 @@ def f(fn):
     print('Saving to ' + fn)
 
 splits = (len(files) + 1) // MAXLENGTH
-target_files = [os.path.join(split_prefix, str(i) + '_data_aggregated.pth') for i in range(splits + 1)]
+# target_files = [os.path.join(split_prefix, str(i) + '_data_aggregated.pth') for i in range(splits + 1)]
+target_files = [os.path.join(split_prefix, '17_data_aggregated.pth')]
 if os.path.exists(split_prefix) == False:
     os.mkdir(split_prefix)
 

@@ -1,28 +1,34 @@
 import sys, os, glob, numpy as np
-import pandas as pd
 from tqdm.contrib import tzip
 from tqdm import tqdm
 import torch
 import json
 from torch.utils.data import DataLoader
-from torch.nn.utils.rnn import pad_sequence
 
 sys.path.append(os.getcwd())
+from utils.util import get_split_files
 
 NUM_OBJECTS = 79
 
 class Dataset:
     def __init__(self): 
-        self.batch_size = 4
+        self.batch_size = 8
         self.train_workers = 4
         self.val_workers = 4
     
-    def trainLoader(self, logger):
-        f_train = sorted(glob.glob(os.path.join('datasets/training_data/data/train', "*_data_aggregated.pth")))
-        self.train_files = []
-        for f in f_train:
-            data = torch.load(f)
-            self.train_files += [[rgb, depth, label, intrinsic, box] for rgb, depth, label, intrinsic, box in tqdm(data)]
+    def trainLoader(self, logger, TOY):
+        if TOY:
+            f_train = get_split_files('train', prefix="datasets/")
+            self.train_files = [torch.load(data) for data in tqdm(f_train[:100])]
+        else:
+            f_train = sorted(glob.glob(os.path.join('datasets/training_data/data/train', "*_data_aggregated.pth")))
+            self.train_files = []
+            for f in f_train:
+                print("Loading", f)
+                rgbs, depths, labels, intrinsics, boxs = torch.load(f)
+                print("Loaded", f)
+                for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
+                    self.train_files.append([rgb, depth, label, intrinsic, box])
 
         logger.info('Training samples: {}'.format(len(self.train_files)))
         assert len(self.train_files) > 0
@@ -30,12 +36,17 @@ class Dataset:
         train_set = list(range(len(self.train_files)))
         self.train_data_loader = DataLoader(train_set, batch_size=self.batch_size, collate_fn=self.trainMerge, num_workers=self.train_workers, shuffle=True, sampler=None, drop_last=True, pin_memory=True)    
     
-    def valLoader(self, logger):
-        f_val = sorted(glob.glob(os.path.join('datasets/training_data/data/val', "*_data_aggregated.pth")))
-        self.val_files = []
-        for f in f_val:
-            data = torch.load(f)
-            self.val_files += [[rgb, depth, label, intrinsic, box] for rgb, depth, label, intrinsic, box in tqdm(data)]
+    def valLoader(self, logger, TOY):
+        if TOY:
+            f_val = get_split_files('val', prefix="datasets/")
+            self.val_files = [torch.load(data) for data in tqdm(f_val[:20])]
+        else:
+            f_val = sorted(glob.glob(os.path.join('datasets/training_data/data/val', "*_data_aggregated.pth")))
+            self.val_files = []
+            for f in f_val:
+                rgbs, depths, labels, intrinsics, boxs = torch.load(f)
+                for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
+                    self.val_files.append([rgb, depth, label, intrinsic, box])
 
         logger.info('Validation samples: {}'.format(len(self.val_files)))
         assert len(self.val_files) > 0
@@ -48,7 +59,8 @@ class Dataset:
         self.test_files = []
         for f in f_test:
             rgbs, depths, labels, intrinsics = torch.load(f)
-            self.test_files += [[rgb, depth, label, intrinsic] for rgb, depth, label, intrinsic in tzip(rgbs, depths, labels, intrinsics)]
+            for rgb, depth, label, intrinsic in zip(rgbs, depths, labels, intrinsics):
+                self.test_files.append([rgb, depth, label, intrinsic])
 
         logger.info('Testing samples: {}'.format(len(self.test_files)))
         assert len(self.test_files) > 0
@@ -63,7 +75,8 @@ class Dataset:
             rgbs, depths, labels, intrinsics = torch.load(f)
             with open(os.path.join('datasets/2Dproposal.json'), "r") as f:
                 preds = json.load(f)
-            self.test_files += [[rgb, depth, label, intrinsic, pred] for rgb, depth, label, intrinsic, pred in tzip(rgbs, depths, labels, intrinsics, preds)]
+            for rgb, depth, label, intrinsic, pred in zip(rgbs, depths, labels, intrinsics, preds):
+                self.test_files.append([rgb, depth, label, intrinsic, pred])
 
         logger.info('Testing samples: {}'.format(len(self.test_files)))
         assert len(self.test_files) > 0
@@ -79,17 +92,18 @@ class Dataset:
         boxes = []
         for idx in id:
             rgb, depth, label, intrinsic, box = self.train_files[idx]
-            rgbs.append(torch.tensor(rgb))
-            depths.append(torch.tensor(depth))
-            labels.append(torch.tensor(label))
-            metas.append(torch.tensor(intrinsic))
-            boxes.append(torch.tensor(box))
+            if rgb.size(0) == 0 or rgb.size(1) == 0:
+                continue
+            rgbs.append(rgb)
+            depths.append(depth)
+            labels.append(label)
+            metas.append(intrinsic)
+            boxes.append(box)
         
         rgbs = torch.stack(rgbs, 0)
         depths = torch.stack(depths, 0)
         labels = torch.stack(labels, 0)
         metas = torch.stack(metas, 0)
-        boxes = torch.stack(boxes, 0)
 
         return {
             "rgb": rgbs, 
@@ -107,17 +121,16 @@ class Dataset:
         boxes = []
         for idx in id:
             rgb, depth, label, intrinsic, box = self.val_files[idx]
-            rgbs.append(torch.tensor(rgb))
-            depths.append(torch.tensor(depth))
-            labels.append(torch.tensor(label))
-            metas.append(torch.tensor(intrinsic))
-            boxes.append(torch.tensor(box))
+            rgbs.append(rgb)
+            depths.append(depth)
+            labels.append(label)
+            metas.append(intrinsic)
+            boxes.append(box)
         
         rgbs = torch.stack(rgbs, 0)
         depths = torch.stack(depths, 0)
         labels = torch.stack(labels, 0)
         metas = torch.stack(metas, 0)
-        boxes = torch.stack(boxes, 0)
 
         return {
             "rgb": rgbs, 
@@ -133,9 +146,9 @@ class Dataset:
         metas = []
         for idx in id:
             rgb, depth, intrinsic = self.test_files[idx]
-            rgbs.append(torch.tensor(rgb))
-            depths.append(torch.tensor(depth))
-            metas.append(torch.tensor(intrinsic))
+            rgbs.append(rgb)
+            depths.append(depth)
+            metas.append(intrinsic)
         
         rgbs = torch.stack(rgbs, 0)
         depths = torch.stack(depths, 0)
@@ -152,30 +165,27 @@ class Dataset:
         depths = []
         metas = []
         boxes = []
-        labels = []
         scores = []
         for idx in id:
             rgb, depth, intrinsic, pred = self.test_files[idx]
             box, label, score = pred
-            rgbs.append(torch.tensor(rgb))
-            depths.append(torch.tensor(depth))
-            metas.append(torch.tensor(intrinsic))
+            box = torch.cat([box, label.unsqueeze(1)], dim=1)
+            rgbs.append(rgb)
+            depths.append(depth)
+            metas.append(intrinsic)
             boxes.append(box)
-            labels.append(label)
             scores.append(score)
         
         rgbs = torch.stack(rgbs, 0)
         depths = torch.stack(depths, 0)
         metas = torch.stack(metas, 0)
-        boxes = torch.stack(boxes, 0)
-        labels = torch.stack(labels, 0)
-        scores = torch.stack(scores, 0)
+        # boxes = torch.stack(boxes, 0)
+        # scores = torch.stack(scores, 0)
 
         return {
             "rgb": rgbs, 
             "depth": depths, 
             "meta": metas,
             "box": boxes,
-            "label": labels,
             "score": scores
             }
