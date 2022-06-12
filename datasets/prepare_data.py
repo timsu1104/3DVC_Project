@@ -59,8 +59,9 @@ def f(fn):
     box = [] # NumBoxes, 5
     sem = np.unique(label)
     sem = [i for i in sem if i < NUM_OBJECTS]
+    assert len(sem) > 0
     for sem_label in sem:
-        x, y = np.where(label == sem_label)
+        x, y = np.nonzero(label == sem_label)
         box.append([x.min(), y.min(), x.max(), y.max(), sem_label])
 
     rgb = torch.tensor(rgb, dtype=torch.float32)
@@ -68,6 +69,7 @@ def f(fn):
     intrinsic = torch.tensor(intrinsic, dtype=torch.float32)
     label = torch.tensor(label, dtype=torch.int)
     box = torch.tensor(box, dtype=torch.float32)
+    assert len(box.shape) == 2
 
     torch.save((rgb, depth, label, intrinsic, box), fn[:-16]+'datas.pth')
     print('Saving to ' + fn[:-16]+'datas.pth')

@@ -39,9 +39,12 @@ cd ..
 
 ```bash
 cd datasets
-python Combine_data.py
-python Combine_data.py --data_split test
-python prepare_data.py
+python prepare_data.py --data_split train
+python Aggregate_data.py --data_split train
+python Aggregate_data.py --data_split val
+
+python prepare_data.py --data_split test
+python Aggregate_data.py --data_split test
 cd ..
 ```
 

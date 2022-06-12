@@ -98,6 +98,16 @@ class Dataset:
             depths.append(depth)
             labels.append(label)
             metas.append(intrinsic)
+            assert len(box.shape) == 2
+            # new_box = []
+            # for single_box in box:
+            #     for x1, y1, x2, y2, lbl in single_box:
+            #         if x2 > x1 and y2 > y1:
+            #             new_box.append([x1, y1, x2, y2, lbl])
+            # new_box = torch.tensor(new_box)
+            x_diff = box[:, 2] - box[:, 0]
+            y_diff = box[:, 3] - box[:, 1]
+            box = box[(x_diff > 0) * (y_diff > 0)]
             boxes.append(box)
         
         rgbs = torch.stack(rgbs, 0)
@@ -125,7 +135,16 @@ class Dataset:
             depths.append(depth)
             labels.append(label)
             metas.append(intrinsic)
-            boxes.append(box)
+            new_box = []
+            # for single_box in box:
+            #     for x1, y1, x2, y2, lbl in single_box:
+            #         if x2 > x1 and y2 > y1:
+            #             new_box.append([x1, y1, x2, y2, lbl])
+            # new_box = torch.tensor(new_box)
+            x_diff = box[:, 2] - box[:, 0]
+            y_diff = box[:, 3] - box[:, 1]
+            box = box[(x_diff > 0) * (y_diff > 0)]
+            boxes.append(new_box)
         
         rgbs = torch.stack(rgbs, 0)
         depths = torch.stack(depths, 0)

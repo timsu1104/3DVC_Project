@@ -2,6 +2,7 @@ import torch, torch.nn as nn
 import numpy as np
 from torchsparse import PointTensor
 from torchsparse.utils import sparse_collate
+from pytorch3d.ops import ball_query
 import sys, os
 
 sys.path.append(os.getcwd())
@@ -24,19 +25,66 @@ class FrustumSegmentationNet(nn.Module):
             nn.Linear(256, 2)
         )
 
+    def sample(self, pc: torch.tensor, num: int = 4000):
+        """
+        Iteratively sample points out of a point cloud by Farthest Point Sampling (FPS). 
+
+        Parameter
+        -----------
+        Pointcloud: torch.tensor, (N, 3)
+            The input pointcloud. 
+        num: int, 
+            Number of points to be selected. 
+
+        Return
+        -----------
+        index: torch.tensor,  (M, 3)
+            Sampled points' index. 
+        """
+        select = []
+        seed = np.random.randint(0, num)
+        select.append(seed)
+        dist = torch.sum((pc - pc[seed]) ** 2, dim=1)
+        for _ in range(num-1):
+            seed = torch.argmin(dist)
+            select.append(seed)
+            new_dist = torch.sum((pc - pc[seed]) ** 2, dim=1)
+            dist = torch.minimum(dist, new_dist)
+        return torch.tensor(select).cuda().long()
+
     def image2pc(self, depth, intrinsic):
         """
         Takes in the cropped depth and intrinsic data, return the pointcloud. 
         """
         z = depth
-        # print(z.shape)
         v, u = np.indices(z.shape)
         v = torch.from_numpy(v).cuda()
         u = torch.from_numpy(u).cuda()
-        # v, u = torch.from_numpy(np.indices(z.shape)).cuda()
         uv1 = torch.stack([u + 0.5, v + 0.5, torch.ones_like(z)], axis=-1)
         coords = uv1 @ torch.linalg.inv(intrinsic).T * z[..., None]  # [H, W, 3]
         return coords
+    
+    def set_abstraction(self, pc, num=4000):
+        """
+        Iteratively sample points out of a point cloud by Farthest Point Sampling (FPS). 
+
+        Parameter
+        -----------
+        Pointcloud: torch.tensor, (M, K, 3 + C)
+            The input pointcloud. 
+        num: int, 
+            Number of points to be selected. 
+
+        Return
+        -----------
+        index: torch.tensor,  (M, 3)
+            Sampled points' index. 
+        """
+        index = self.sample(pc, num=num)
+        selected = pc[index]
+        grouped_feats = ball_query(selected, ) # (M, K, 3 + C)
+        output_feats = torch.max(grouped_feats, dim=1)
+        return output_feats
 
     def forward(self, rgb, depth, intrinsic, box):
         """
@@ -56,9 +104,6 @@ class FrustumSegmentationNet(nn.Module):
             label = torch.zeros((82, *rgb.shape[1:-1])).cuda()
             single_box = single_box.cuda().long()
             for x1, y1, x2, y2, _ in single_box:
-                if x2 <= x1 or y2 <= y1:
-                    continue
-
                 # Cropping and lifting
                 cropped_pc = self.image2pc(depth[bind, x1 : x2, y1 : y2], intrinsic[bind])
 
