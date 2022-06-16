@@ -107,7 +107,8 @@ class Dataset:
             # new_box = torch.tensor(new_box)
             x_diff = box[:, 2] - box[:, 0]
             y_diff = box[:, 3] - box[:, 1]
-            box = box[(x_diff > 0) * (y_diff > 0)]
+            lbl = box[:, 4]
+            box = box[(x_diff > 0) * (y_diff > 0) * (lbl < 79)]
             boxes.append(box)
         
         rgbs = torch.stack(rgbs, 0)
@@ -143,7 +144,8 @@ class Dataset:
             # new_box = torch.tensor(new_box)
             x_diff = box[:, 2] - box[:, 0]
             y_diff = box[:, 3] - box[:, 1]
-            box = box[(x_diff > 0) * (y_diff > 0)]
+            lbl = box[:, 4]
+            box = box[(x_diff > 0) * (y_diff > 0) * (lbl < 79)]
             boxes.append(new_box)
         
         rgbs = torch.stack(rgbs, 0)

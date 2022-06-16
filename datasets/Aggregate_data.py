@@ -62,6 +62,7 @@ def f(fn):
     intrinsics = []
     labels = []
     boxs = []
+    assert len(datas) > 0
     for f in datas:
         rgb, depth, label, intrinsic, box = torch.load(f)
         rgbs.append(rgb)
@@ -81,8 +82,9 @@ def f(fn):
     print('Saving to ' + fn)
 
 splits = (len(files) + 1) // MAXLENGTH
-# target_files = [os.path.join(split_prefix, str(i) + '_data_aggregated.pth') for i in range(splits + 1)]
-target_files = [os.path.join(split_prefix, '17_data_aggregated.pth')]
+target_files = [os.path.join(split_prefix, str(i) + '_data_aggregated.pth') for i in range(splits + 1)]
+# target_files = [os.path.join(split_prefix, str(i) + '_data_aggregated.pth') for i in [5, 7, 11, 12, 14, 15, 16, 17, 18, 19]]
+# target_files = [os.path.join(split_prefix, '17_data_aggregated.pth')]
 if os.path.exists(split_prefix) == False:
     os.mkdir(split_prefix)
 

@@ -54,9 +54,11 @@ The code is tested on PyTorch 1.9.0+cu111.
 ## Step 3. Training
 To train the model, run
 ```bash
+python scripts/Proposal_train.py
 python scripts/train.py
 ```
 To evaluate on test set, run
 ```bash
+python scripts/Proposal_test.py
 python scripts/test.py
 ```
