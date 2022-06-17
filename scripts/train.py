@@ -16,7 +16,7 @@ TAG = ''
 def train_epoch(train_loader, model, model_fn, optimizer, exp_path, epoch):
     model.train()
     lossavg = 0
-    for batch in train_loader:
+    for i, batch in enumerate(train_loader):
         torch.cuda.empty_cache()
 
         ##### prepare input and forward
@@ -28,6 +28,9 @@ def train_epoch(train_loader, model, model_fn, optimizer, exp_path, epoch):
         optimizer.step()
 
         lossavg += loss.item()
+        logger.info(
+            "epoch: {}/{}, iter: {}/{}, train loss: {:.4f}".format(epoch, Total_epochs, i, len(train_loader), loss)
+        )
 
     lossavg /= len(train_loader)
     logger.info(

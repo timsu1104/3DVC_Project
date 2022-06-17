@@ -1,4 +1,5 @@
-import torch, torch.nn as nn
+import torch, torch.nn as nn, torch.nn.functional as F
+from torch.autograd import Variable
 import numpy as np
 from torchsparse import PointTensor
 from torchsparse.utils import sparse_collate
@@ -9,7 +10,7 @@ sys.path.append(os.getcwd())
 from utils.spvcnn_utils import *
 
 class PointNet(nn.Module):
-    def __init__(self, global_feature_size=79, input_channel=3, output_channel=6) -> None:
+    def __init__(self, input_channel=3, output_channel=6) -> None:
         super(PointNet, self).__init__()
         self.conv1 = torch.nn.Conv1d(3 + input_channel, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
@@ -44,7 +45,7 @@ class PointNet(nn.Module):
         colors = target[..., 3:]
         length = (points.max(dim=1, keepdim=True)[0] - points.min(dim=1, keepdim=True)[0]) / 2
         points = points * 10 / length
-        x = torch.cat([points, colors], dim=2)
+        x = torch.cat([points, colors], dim=-1)
 
         x = x.transpose(1, 2)
         x = F.relu(self.bn1(self.conv1(x)))
@@ -64,7 +65,7 @@ class FrustumSegmentationNet(nn.Module):
     def __init__(self) -> None:
         super(FrustumSegmentationNet, self).__init__()
         self.pointnet = PointNet(output_channel=128)
-        self.get_score = nn.Linear(3 + 3 + 128, 79)
+        self.get_score = nn.Linear(3 + 3 + 128, 80)
 
     def sample(self, pc: torch.tensor, num: int = 500):
         """
@@ -119,14 +120,17 @@ class FrustumSegmentationNet(nn.Module):
         dist = torch.norm(torch.repeat_interleave(sel_xyz.unsqueeze(1), xyz.shape[0], dim=1) - xyz.unsqueeze(0), p=2, dim=2) # (N', N)
         value, index = torch.sort(dist, dim=-1)
         output = pc[index] # (N', N, 3)
-        output = output * (value < radius)
-        output = output[:, K]
-        return output, index
+        mask = torch.sum(value < radius, dim=-1).clamp(min=0, max=K)
+        output = output * torch.broadcast_to(torch.unsqueeze(value < radius, -1), output.shape)
+        output = output[:, :K]
+        return output, index, mask
     
     def center(self, pc):
         xyz = pc[..., :3]
         feats = pc[..., 3:]
-        xyz = xyz - torch.mean(xyz, dim=-1)
+        xyz = xyz - torch.mean(xyz, dim=-2, keepdim=True)
+        length = xyz.max(dim=-2, keepdim=True)[0] - xyz.min(dim=-2, keepdim=True)[0]
+        xyz = xyz / length # scale
         centered_pc = torch.cat([xyz, feats], dim=-1)
         return centered_pc
 
@@ -144,7 +148,7 @@ class FrustumSegmentationNet(nn.Module):
     
     def set_abstraction(self, pc, num=500):
         """
-        Iteratively sample points out of a point cloud by Farthest Point Sampling (FPS). 
+        Set abstraction layer. 
 
         Parameter
         -----------
@@ -155,24 +159,40 @@ class FrustumSegmentationNet(nn.Module):
 
         Return
         -----------
-        output_feats: torch.tensor,  (M, 3 + C)
+        output_feats: torch.tensor,  (M, 3 + C')
             Sampled points' index. 
+        allocate_index: torch.tensor,  (M, K)
         """
         index = self.sample(pc, num=num)
         selected = pc[index]
-        grouped_feats, allocate_index = self.ball_query(pc, selected) # (M, K, 3 + C)
+        grouped_feats, allocate_index, mask = self.ball_query(pc, selected) # (M, K, 3 + C)
         grouped_feats = self.center(grouped_feats)
         output_feats = self.pointnet(grouped_feats) # (M, 3 + C')
-        return output_feats, allocate_index
+        return output_feats, allocate_index, mask
     
-    def segmentation(self, pc, abs_feats, index):
-        M, C = pc.shape
-        _, C1 = abs_feats.shape
-        seg = torch.zeros((M, C + C1)).cuda()
-        # for ind, feat in index:
-        #     seg[ind] = torch.cat([pc[ind], feat], dim=-1)
-        seg[index] = seg[index] + torch.cat([pc[index], abs_feats], dim=-1)
-        print(seg.grad_fn)
+    def segmentation(self, pc, abs_feats, index, masks):
+        """
+        Segmentation layer. 
+
+        Parameter
+        -----------
+        Pointcloud: torch.tensor, (N, C)
+            The input pointcloud. 
+        abs_feats: torch.tensor,  (M, C')
+            Abstract features for each cluster.
+        index: torch.tensor,  (M, K) 
+            The points in each cluster.
+
+        Return
+        -----------
+        seg: 
+        """
+        N, _ = pc.shape
+        f_ind = torch.zeros(N).long()
+        for clus_id, (ind, mask) in enumerate(zip(index, masks)):
+            f_ind[ind[:mask]] = clus_id
+        seg = torch.cat([pc, abs_feats[f_ind]], dim=-1)
+        
         seg = self.get_score(seg)
         return seg
 
@@ -187,11 +207,12 @@ class FrustumSegmentationNet(nn.Module):
         
         Return
         ---------
-        label: torch.Tensor, (BatchSize, H, W)
+        label: torch.Tensor, (BatchSize, H, W, 80)
         """
         labels = []
         for bind, single_box in enumerate(box):
-            label = torch.zeros((80, *rgb.shape[1:-1])).cuda()
+            label = Variable(torch.zeros((80, *rgb.shape[1:-1]))).cuda()
+            if len(single_box) == 0: continue
             single_box = single_box.cuda().long()
             for x1, y1, x2, y2, _ in single_box:
                 # Cropping and lifting
@@ -199,38 +220,27 @@ class FrustumSegmentationNet(nn.Module):
 
                 # 3D PointCloud Segmentation
                 x = torch.cat([cropped_pc, rgb[bind, x1 : x2, y1 : y2]], dim=-1)
-                orig_shape = pc.shape
+                orig_shape = x.shape
                 x = x.view((-1, orig_shape[-1]))
-                output_feats, index = self.set_abstraction(x)
-                # lbl = torch.max(self.getlabel(output_feats), dim=1)[1]
-                # lbl = torch.max(lbl)
-
-                # orig_shape = x.shape[:-1]
-                # x = self.f(x).view(-1, 1024)
-                # global_feats = torch.max(x, dim=0)[0]
-                # lbl = self.getlabel(global_feats)
-                # x = torch.cat([x, torch.repeat_interleave(global_feats.unsqueeze(0), x.size(0), dim=0)], dim=1)
-                # x = self.h(x).view((*orig_shape, -1))
+                mid_params = self.set_abstraction(x)
 
                 # Extract Segmentation
-                # seg = torch.nonzero(torch.argmax(x, dim=-1) == 1)
-                seg = self.segmentation(x, output_feats, index)
-                seg = seg.view(orig_shape)
-                # torch._assert(
-                #     x.size(-1) == 2,
-                #     "x.size is {}, x is ".format(x.shape, x)
-                # )
+                seg = self.segmentation(x, *mid_params)
+                assert x.size(0) == seg.size(0)
+                seg = seg.view((*orig_shape[:-1], -1)) # H, W, 80
+
                 if seg.size(0) == 0:
                     continue
-                xind, yind = seg[:, 0], seg[:, 1]
-                xind += x1
-                yind += y1
+                # xind, yind = seg[:, 0], seg[:, 1]
+                # xind += x1
+                # yind += y1
 
                 # Scaling by Kernel
-                center = torch.stack([x1 + x2, y1 + y2]).float() / 2
-                kernel = 1 / torch.norm(seg - center, p=2, dim=1)
+                # center = torch.stack([x1 + x2, y1 + y2]).float() / 2
+                # kernel = 1 / torch.norm(cropped_pc - center, p=2, dim=1)
 
-                label[:, xind, yind] = label[:, xind, yind] + lbl.unsqueeze(1) * kernel
+                label[:, x1 : x2, y1 : y2] = seg.permute(2, 0, 1) # * kernel
+            
             labels.append(label)
         labels = torch.stack(labels, 0)
 
@@ -244,10 +254,19 @@ def model_fn_decorator(test=False):
         intrinsic = batch['meta'].cuda()
         box = batch['box']
         gt = batch['gt'].cuda().long()
+        gt.clamp_(max=79)
 
         Criterion = nn.CrossEntropyLoss()
 
         pred = model(rgb, depth, intrinsic, box)
+        torch._assert(
+                pred.grad_fn != None,
+                "Gradient disappeared!"
+            )
+        torch._assert(
+                pred.size(1) == 80,
+                f"Size Error: pred {pred.shape}, gt {gt.shape}"
+            )
         loss = Criterion(pred, gt)
 
         return loss, pred
