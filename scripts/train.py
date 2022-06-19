@@ -25,6 +25,9 @@ def train_epoch(train_loader, model, model_fn, optimizer, exp_path, epoch):
         ##### backward
         optimizer.zero_grad()
         loss.backward()
+        # print("Backward gradient", model.pointnet.conv1.weight.grad)
+        # assert False
+        # print("Backward gradient", model[1].grad)
         optimizer.step()
 
         lossavg += loss.item()

@@ -94,10 +94,6 @@ class Dataset:
             rgb, depth, label, intrinsic, box = self.train_files[idx]
             if rgb.size(0) == 0 or rgb.size(1) == 0:
                 continue
-            rgbs.append(rgb)
-            depths.append(depth)
-            labels.append(label)
-            metas.append(intrinsic)
             assert len(box.shape) == 2
             # new_box = []
             # for single_box in box:
@@ -108,7 +104,21 @@ class Dataset:
             x_diff = box[:, 2] - box[:, 0]
             y_diff = box[:, 3] - box[:, 1]
             lbl = box[:, 4]
-            box = box[(x_diff > 0) * (y_diff > 0) * (lbl < 79)]
+            mask = (x_diff > 0) * (y_diff > 0) * (lbl < 79)
+            if torch.sum(mask) == 0:
+                continue
+            box = box[mask]
+            torch._assert(
+                len(box) != 0,
+                f"x_diff {x_diff}, y_diff {y_diff}, lbl {lbl}, box {box}"
+            )
+
+            label = torch.clamp(label, min=0, max=79)
+
+            rgbs.append(rgb)
+            depths.append(depth)
+            labels.append(label)
+            metas.append(intrinsic)
             boxes.append(box)
         
         rgbs = torch.stack(rgbs, 0)
@@ -132,21 +142,28 @@ class Dataset:
         boxes = []
         for idx in id:
             rgb, depth, label, intrinsic, box = self.val_files[idx]
+            if rgb.size(0) == 0 or rgb.size(1) == 0:
+                continue
+            assert len(box.shape) == 2
+            x_diff = box[:, 2] - box[:, 0]
+            y_diff = box[:, 3] - box[:, 1]
+            lbl = box[:, 4]
+            mask = (x_diff > 0) * (y_diff > 0) * (lbl < 79)
+            if torch.sum(mask) == 0:
+                continue
+            box = box[mask]
+            torch._assert(
+                len(box) != 0,
+                f"x_diff {x_diff}, y_diff {y_diff}, lbl {lbl}, box {box}"
+            )
+            
+            label = torch.clamp(label, min=0, max=79)
+
             rgbs.append(rgb)
             depths.append(depth)
             labels.append(label)
             metas.append(intrinsic)
-            new_box = []
-            # for single_box in box:
-            #     for x1, y1, x2, y2, lbl in single_box:
-            #         if x2 > x1 and y2 > y1:
-            #             new_box.append([x1, y1, x2, y2, lbl])
-            # new_box = torch.tensor(new_box)
-            x_diff = box[:, 2] - box[:, 0]
-            y_diff = box[:, 3] - box[:, 1]
-            lbl = box[:, 4]
-            box = box[(x_diff > 0) * (y_diff > 0) * (lbl < 79)]
-            boxes.append(new_box)
+            boxes.append(box)
         
         rgbs = torch.stack(rgbs, 0)
         depths = torch.stack(depths, 0)
