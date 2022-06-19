@@ -49,24 +49,25 @@ def eval_epoch(val_loader, model, model_fn, epoch):
     with torch.no_grad():
         model.eval()
         lossavg = 0
-        gts = []
-        preds = []
+        # gts = []
+        # preds = []
         for batch in tqdm(val_loader):
             ##### prepare input and forward
             loss, pred = model_fn(batch, model)
             lossavg += loss.item()
 
             gt = batch["gt"].numpy()
-            pred = pred.cpu().numpy()
-            gts.append(gt)
-            preds.append(pred)
+            # pred = pred.cpu().numpy()
+            # gts.append(gt)
+            # preds.append(pred)
 
-        _, mAcc, _, mIoU = evaluate(gts, preds)
+        # _, mAcc, _, mIoU = evaluate(gts, preds)
         lossavg /= len(val_loader)
-        logger.info("epoch: {}/{}, val loss: {:.4f}, mean accuracy: {:.4f}, mean IoU: {:.4f}".format(epoch, Total_epochs, lossavg/len(val_loader), mAcc, mIoU))
-        writer.add_scalar('loss_val', lossavg, epoch)
-        writer.add_scalar('Mean acc', mAcc, epoch)
-        writer.add_scalar('Mean IoU', mIoU, epoch)
+        logger.info("epoch: {}/{}, val loss: {:.4f}".format(epoch, Total_epochs, lossavg/len(val_loader)))
+        # logger.info("epoch: {}/{}, val loss: {:.4f}, mean accuracy: {:.4f}, mean IoU: {:.4f}".format(epoch, Total_epochs, lossavg/len(val_loader), mAcc, mIoU))
+        # writer.add_scalar('loss_val', lossavg, epoch)
+        # writer.add_scalar('Mean acc', mAcc, epoch)
+        # writer.add_scalar('Mean IoU', mIoU, epoch)
 
 if __name__ == '__main__':
     

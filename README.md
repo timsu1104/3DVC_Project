@@ -55,10 +55,18 @@ The code is tested on PyTorch 1.9.0+cu111.
 To train the model, run
 ```bash
 python scripts/Proposal_train.py
-python scripts/train.py
+python scripts/train.py --tag simple_pointnet
 ```
 To evaluate on test set, run
 ```bash
-python scripts/Proposal_test.py
+CUDA_VISIBLE_DEVICES=7 python scripts/Proposal_test.py
 python scripts/test.py
+```
+Note: when training, passing a ```--toy``` can force the model to use a reduced set of data (100 for training and 20 for validation). 
+
+
+## Step 4. Monitoring
+Tensorboard monitoring is supported. To use it, run 
+```bash
+tensorboard --logdir exp/FrustumSegmentationNet --bind_all
 ```

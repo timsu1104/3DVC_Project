@@ -15,6 +15,7 @@ class Dataset:
         self.batch_size = 8
         self.train_workers = 4
         self.val_workers = 4
+        self.test_workers = 4
     
     def trainLoader(self, logger, TOY):
         if TOY:
@@ -58,9 +59,9 @@ class Dataset:
         f_test = sorted(glob.glob(os.path.join('datasets/testing_data/data/test', "*_data_aggregated.pth")))
         self.test_files = []
         for f in f_test:
-            rgbs, depths, labels, intrinsics = torch.load(f)
-            for rgb, depth, label, intrinsic in zip(rgbs, depths, labels, intrinsics):
-                self.test_files.append([rgb, depth, label, intrinsic])
+            rgbs, depths, intrinsics = torch.load(f)
+            for rgb, depth, intrinsic in zip(rgbs, depths, intrinsics):
+                self.test_files.append([rgb, depth, intrinsic])
 
         logger.info('Testing samples: {}'.format(len(self.test_files)))
         assert len(self.test_files) > 0
@@ -72,11 +73,11 @@ class Dataset:
         f_test = sorted(glob.glob(os.path.join('datasets/testing_data/data/test', "*_data_aggregated.pth")))
         self.test_files = []
         for f in f_test:
-            rgbs, depths, labels, intrinsics = torch.load(f)
+            rgbs, depths, intrinsics = torch.load(f)
             with open(os.path.join('datasets/2Dproposal.json'), "r") as f:
                 preds = json.load(f)
-            for rgb, depth, label, intrinsic, pred in zip(rgbs, depths, labels, intrinsics, preds):
-                self.test_files.append([rgb, depth, label, intrinsic, pred])
+            for rgb, depth, intrinsic, pred in zip(rgbs, depths,intrinsics, preds):
+                self.test_files.append([rgb, depth, intrinsic, pred])
 
         logger.info('Testing samples: {}'.format(len(self.test_files)))
         assert len(self.test_files) > 0

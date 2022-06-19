@@ -10,7 +10,7 @@ sys.path.append(os.getcwd())
 from utils.spvcnn_utils import *
 
 class PointNet(nn.Module):
-    def __init__(self, input_channel=3, output_channel=6) -> None:
+    def __init__(self, input_channel=3, output_channel=1024) -> None:
         super(PointNet, self).__init__()
         self.conv1 = torch.nn.Conv1d(3 + input_channel, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
@@ -64,19 +64,22 @@ class PointNet(nn.Module):
         return Raw_result
 
 class FrustumSegmentationNet(nn.Module):
-    def __init__(self, inp_dim=3, hid_dim=1024, oup_dim=4096) -> None:
+    def __init__(self, inp_dim=3, hid_dim=1024, oup_dim=2048) -> None:
         super(FrustumSegmentationNet, self).__init__()
         self.pointnet = PointNet(input_channel=inp_dim, output_channel=hid_dim)
-        self.f = nn.Linear(3 + hid_dim, 3 + oup_dim)
-        self.h = nn.Linear(3 + oup_dim, 3 + oup_dim)
+        # self.f = nn.Linear(3 + hid_dim, 3 + oup_dim)
+        # self.h = nn.Linear(3 + oup_dim, 3 + oup_dim)
+        self.f = nn.Linear(3 + inp_dim, 3 + hid_dim)
+        self.h = nn.Linear(3 + hid_dim, 3 + oup_dim)
         
-        self.get_score = nn.Linear(9 + inp_dim + hid_dim + oup_dim, 80)
+        # self.get_score = nn.Linear(9 + inp_dim + hid_dim + oup_dim, 2)
+        self.get_score = nn.Linear(9 + inp_dim + hid_dim + oup_dim, 1)
     
     def pointnet2(self, inp):
-        x = F.relu(self.f(inp))
-        x = torch.max(x, dim=0)[0]
+        hidden = F.relu(self.f(inp))
+        x = torch.max(hidden, dim=0)[0]
         x = F.relu(self.h(x))
-        return x
+        return hidden, x
 
     def sample(self, pc: torch.tensor, num: int = 500):
         """
@@ -96,7 +99,7 @@ class FrustumSegmentationNet(nn.Module):
         """
         xyz = pc[:, :3]
         select = []
-        iternum = min(pc.shape[0], num)
+        iternum = num
         seed = np.random.randint(iternum)
         select.append(seed)
         dist = torch.sum((xyz - xyz[seed].unsqueeze(0)) ** 2, dim=-1)
@@ -222,20 +225,26 @@ class FrustumSegmentationNet(nn.Module):
         # print("YYYY", value[:, K].mean())
         return output, index, mask
     
-    def center(self, pc):
-        xyz = pc[..., :3]
-        feats = pc[..., 3:]
-        xyz = xyz - torch.mean(xyz, dim=-2, keepdim=True)
-        length = (xyz.max(dim=-2, keepdim=True)[0] - xyz.min(dim=-2, keepdim=True)[0]).clamp(min=1e-5)
-        torch._assert(
-            (length != 0).all(), 
-            f"Length Error! length position: {torch.nonzero(length)}"
-            # f"xyz {xyz[0, :10]} xyzmax={xyz.max(dim=-2, keepdim=True)[0][0]} xyzmin={xyz.min(dim=-2, keepdim=True)[0][0]}"
-        )
-        
-        xyz = xyz / length # scale
-        centered_pc = torch.cat([xyz, feats], dim=-1)
-        return centered_pc
+    def center(self, pc, type='xyz'):
+        if type == 'xyz':
+            xyz = pc[..., :3]
+            feats = pc[..., 3:]
+            xyz = xyz - torch.mean(xyz, dim=-2, keepdim=True)
+            length = (xyz.max(dim=-2, keepdim=True)[0] - xyz.min(dim=-2, keepdim=True)[0]).clamp(min=1e-5)
+            torch._assert(
+                (length != 0).all(), 
+                f"Length Error! length position: {torch.nonzero(length)}"
+                # f"xyz {xyz[0, :10]} xyzmax={xyz.max(dim=-2, keepdim=True)[0][0]} xyzmin={xyz.min(dim=-2, keepdim=True)[0][0]}"
+            )
+            
+            xyz = xyz / length # scale
+            centered_pc = torch.cat([xyz, feats], dim=-1)
+            return centered_pc
+        else:
+            pc = pc - torch.mean(pc, dim=-2, keepdim=True)
+            length = (pc.max(dim=-2, keepdim=True)[0] - pc.min(dim=-2, keepdim=True)[0]).clamp(min=1e-5)
+            pc = pc / length
+            return pc
 
     def image2pc(self, depth, intrinsic):
         """
@@ -266,7 +275,7 @@ class FrustumSegmentationNet(nn.Module):
             Sampled points' index. 
         allocate_index: torch.tensor,  (M, K)
         """
-        index, r = self.sample(pc, num=np.floor(np.sqrt(pc.size(0))))
+        index, r = self.sample(pc, num=int(np.sqrt(pc.size(0))))
         grouped_feats, allocate_index, mask = self.ball_query(pc, index, radius=r) # (M, K, 3 + C)
         torch._assert(
             len(grouped_feats.shape) == 3,
@@ -300,7 +309,8 @@ class FrustumSegmentationNet(nn.Module):
             f_ind[ind[:mask]] = clus_id
         seg = torch.cat([pc, abs_feats[f_ind], torch.repeat_interleave(global_feats.unsqueeze(0), repeats=pc.size(0), dim=0)], dim=-1)
         
-        seg = self.get_score(seg)
+        seg = torch.cat([pc, abs_feats[f_ind]], dim=-1)
+        
         return seg
 
     def forward(self, rgb, depth, intrinsic, box):
@@ -314,11 +324,12 @@ class FrustumSegmentationNet(nn.Module):
         
         Return
         ---------
-        label: torch.Tensor, (BatchSize, H, W, 80)
+        label: torch.Tensor, (BatchSize, H, W, 2)
         """
         labels = []
+        segments = []
         for bind, single_box in enumerate(box):
-            label = torch.zeros((80, *rgb.shape[1:-1])).cuda()
+            label = torch.zeros((2, *rgb.shape[1:-1])).cuda()
             mask = torch.ones(rgb.shape[1:-1]).cuda().bool()
             # if len(single_box) == 0: continue
             torch._assert(
@@ -326,23 +337,39 @@ class FrustumSegmentationNet(nn.Module):
                 "Box Error! {}".format(box)
             )
             single_box = single_box.cuda().long()
+            segs = []
             for x1, y1, x2, y2, _ in single_box:
                 # Cropping and lifting
                 cropped_pc = self.image2pc(depth[bind, x1 : x2, y1 : y2], intrinsic[bind])
                 assert x1 < x2-1 and y1 < y2-1
-                mask[x1 : x2, y1 : y2] = 0
 
                 # 3D PointCloud Segmentation
                 x = torch.cat([cropped_pc, rgb[bind, x1 : x2, y1 : y2]], dim=-1)
                 x = self.center(x)
                 orig_shape = x.shape
                 x = x.view((-1, orig_shape[-1]))
-                mid_params = self.set_abstraction(x)
 
-                # Extract Segmentation
-                seg = self.segmentation(x, *mid_params)
+                # # Set Abstraction
+                # mid_params = self.set_abstraction(x)
+
+                # # Extract Segmentation
+                # seg = self.segmentation(x, *mid_params)
+
+                h_feats, abs_feats = self.pointnet2(x)
+                seg = torch.cat([x, h_feats, torch.repeat_interleave(abs_feats.unsqueeze(0), x.size(0), dim=0)], dim=-1)
+        
+                seg = self.get_score(seg).squeeze() # > 0 yes; < 0 no
+                A, B = seg.max(), seg.min()
+                seg = seg - (A + B) / 2
+                seg = 2 * seg / (A - B)
+                torch._assert(
+                    seg.max() <= 2 and seg.min() >= -2,
+                    f"{A} {B} {seg.max()} {seg.min()}"
+                )
+
                 assert x.size(0) == seg.size(0) > 0
-                seg = seg.view((*orig_shape[:-1], -1)) # H, W, 80
+                seg = seg.view((*orig_shape[:-1], -1)) # H, W, 2
+                segs.append(seg)
 
                 # xind, yind = seg[:, 0], seg[:, 1]
                 # xind += x1
@@ -352,14 +379,18 @@ class FrustumSegmentationNet(nn.Module):
                 # center = torch.stack([x1 + x2, y1 + y2]).float() / 2
                 # kernel = 1 / torch.norm(cropped_pc - center, p=2, dim=1)
 
-                label[:, x1 : x2, y1 : y2] = label[:, x1 : x2, y1 : y2] + seg.permute(2, 0, 1) # * kernel
+                # label[:, x1 : x2, y1 : y2] = label[:, x1 : x2, y1 : y2] + seg.permute(2, 0, 1) # * kernel
             
-            label[79, mask] = 1
+            # label[79, mask] = 1
+            # label = label / torch.norm(label, dim=0, p=2, keepdim=True)
             
-            labels.append(label)
-        labels = torch.stack(labels, 0)
+            # labels.append(label)
+            # segs = torch.stack(segs, 0) # NumBox, H, W, 2
+            segments.append(segs)
+        # labels = torch.stack(labels, 0)
+        # segments = torch.stack(segments, 0) # BatchSize, NumBox, H, W, 2
 
-        return labels
+        return segments
         
 
 def model_fn_decorator(test=False):
@@ -371,18 +402,29 @@ def model_fn_decorator(test=False):
         gt = batch['gt'].cuda().long()
         gt.clamp_(max=79)
 
-        Criterion = nn.CrossEntropyLoss()
+        # Criterion = nn.CrossEntropyLoss()
+        preds = model(rgb, depth, intrinsic, box)
 
-        pred = model(rgb, depth, intrinsic, box)
-        torch._assert(
-                pred.grad_fn != None,
-                "Gradient disappeared!"
-            )
-        torch._assert(
-                pred.size(1) == 80,
-                f"Size Error: pred {pred.shape}, gt {gt.shape}"
-            )
-        loss = Criterion(pred, gt)
+        loss = 0
+        for label, single_box, pred in zip(gt, box, preds):
+            single_box = single_box.cuda().long()
+            for (x1, y1, x2, y2, lbl), pred_seg in zip(single_box, pred):
+                crop = label[x1 : x2, y1 : y2]
+                # seg = (crop == lbl).long() # H, W
+                # loss = loss + Criterion(pred_seg, seg)
+                loss = loss + (torch.sum(1 - pred_seg[crop == lbl]) + torch.sum(1 + pred_seg[crop != lbl])) / ((x2 - x1) * (y2 - y1) )
+                torch._assert(
+                    torch.sum(1 - pred_seg[crop == lbl]) >= 0 and torch.sum(1 + pred_seg[crop != lbl]) >= 0,
+                    f"{pred_seg.max()} {pred_seg.min()}"
+                )
+
+
+
+        # torch._assert(
+        #         pred.grad_fn != None,
+        #         f"Gradient disappeared! {pred.size()}"
+        #     )
+        # loss = Criterion(pred, gt_seg)
 
         return loss, pred
         

@@ -1,5 +1,6 @@
 import torch, torch.optim as optim
 from torchvision.models.detection import fasterrcnn_resnet50_fpn as ProposalModule
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 # from torchvision.models.detection import FasterRCNN_ResNet50_FPN_Weights as init_weight
 import argparse, sys, os
 from tensorboardX import SummaryWriter
@@ -10,7 +11,7 @@ sys.path.append(os.getcwd())
 from utils.util import checkpoint_save, checkpoint_restore
 from utils.log import init
 
-Total_epochs = 300
+Total_epochs = 30
 
 def train_epoch(train_loader, model, optimizer, exp_path, epoch):
     model.train()
@@ -28,8 +29,11 @@ def train_epoch(train_loader, model, optimizer, exp_path, epoch):
             d = {}
             # print(box.shape)
             # print(box[i, :, :4])
+            labels = box[i][:, 4]
+            labels[labels >= 79] = -1
+            labels += 1
             d['boxes'] = box[i][:, :4].cuda()
-            d['labels'] = box[i][:, 4].cuda().long()
+            d['labels'] = labels.cuda().long()
             targets.append(d)
 
         ##### prepare input and forward
@@ -60,11 +64,11 @@ if __name__ == '__main__':
     opt = parser.parse_args()
     TOY = opt.toy
 
-    exp_path = os.path.join('exp/FPN')
+    exp_path = os.path.join('exp/FPN_new')
 
     start = time.time()
     global logger
-    logger = init(os.path.join('FPN'))
+    logger = init(os.path.join('FPN_new'))
 
     # summary writer
     global writer
@@ -72,7 +76,10 @@ if __name__ == '__main__':
 
     from lib.dataloader import Dataset
     # model = ProposalModule(weights=init_weight.DEFAULT)
-    model = ProposalModule(num_classes=82)
+    model = ProposalModule(pretrained=True)
+    num_classes = 80
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
 
     use_cuda = torch.cuda.is_available()
     logger.info('cuda available: {}'.format(use_cuda))
