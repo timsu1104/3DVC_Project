@@ -64,7 +64,7 @@ class PointNet(nn.Module):
         return Raw_result
 
 class FrustumSegmentationNet(nn.Module):
-    def __init__(self, inp_dim=3, hid_dim=1024, oup_dim=2048) -> None:
+    def __init__(self, inp_dim=3, hid_dim=128, oup_dim=512) -> None:
         super(FrustumSegmentationNet, self).__init__()
         self.pointnet = PointNet(input_channel=inp_dim, output_channel=hid_dim)
         # self.f = nn.Linear(3 + hid_dim, 3 + oup_dim)
@@ -339,9 +339,9 @@ class FrustumSegmentationNet(nn.Module):
             single_box = single_box.cuda().long()
             segs = []
             for x1, y1, x2, y2, _ in single_box:
+                # if x1 >= x2-1 or y1 >= y2-1: continue
                 # Cropping and lifting
                 cropped_pc = self.image2pc(depth[bind, x1 : x2, y1 : y2], intrinsic[bind])
-                assert x1 < x2-1 and y1 < y2-1
 
                 # 3D PointCloud Segmentation
                 x = torch.cat([cropped_pc, rgb[bind, x1 : x2, y1 : y2]], dim=-1)
@@ -357,18 +357,21 @@ class FrustumSegmentationNet(nn.Module):
 
                 h_feats, abs_feats = self.pointnet2(x)
                 seg = torch.cat([x, h_feats, torch.repeat_interleave(abs_feats.unsqueeze(0), x.size(0), dim=0)], dim=-1)
-        
-                seg = self.get_score(seg).squeeze() # > 0 yes; < 0 no
-                A, B = seg.max(), seg.min()
-                seg = seg - (A + B) / 2
-                seg = 2 * seg / (A - B)
-                torch._assert(
-                    seg.max() <= 2 and seg.min() >= -2,
-                    f"{A} {B} {seg.max()} {seg.min()}"
-                )
 
                 assert x.size(0) == seg.size(0) > 0
-                seg = seg.view((*orig_shape[:-1], -1)) # H, W, 2
+                seg = seg.view((*orig_shape[:-1], -1)) # H, W, 9 + i + h + o
+
+                seg = self.get_score(seg).squeeze(-1) # > 0 yes; < 0 no
+                A, B = seg.max(), seg.min()
+                seg = seg - (A + B) / 2
+                if A > B:
+                    seg = 2 * seg / (A - B)
+                torch._assert(
+                    seg.max() <= 2 and seg.min() >= -2,
+                    f"{A} {B} {seg.max()} {seg.min()} {seg.size(0)}"
+                )
+
+
                 segs.append(seg)
 
                 # xind, yind = seg[:, 0], seg[:, 1]
@@ -409,12 +412,13 @@ def model_fn_decorator(test=False):
         for label, single_box, pred in zip(gt, box, preds):
             single_box = single_box.cuda().long()
             for (x1, y1, x2, y2, lbl), pred_seg in zip(single_box, pred):
+                # if x1 >= x2-1 or y1 >= y2-1: continue
                 crop = label[x1 : x2, y1 : y2]
                 # seg = (crop == lbl).long() # H, W
                 # loss = loss + Criterion(pred_seg, seg)
-                loss = loss + (torch.sum(1 - pred_seg[crop == lbl]) + torch.sum(1 + pred_seg[crop != lbl])) / ((x2 - x1) * (y2 - y1) )
+                loss = loss + (torch.sum(1 - pred_seg[crop == lbl]) + torch.sum(1 + pred_seg[crop != lbl])) / ((x2 - x1) * (y2 - y1))
                 torch._assert(
-                    torch.sum(1 - pred_seg[crop == lbl]) >= 0 and torch.sum(1 + pred_seg[crop != lbl]) >= 0,
+                    torch.sum(1 - pred_seg[crop == lbl]) >= -1 and torch.sum(1 + pred_seg[crop != lbl]) >= -1,
                     f"{pred_seg.max()} {pred_seg.min()}"
                 )
 
@@ -434,9 +438,25 @@ def model_fn_decorator(test=False):
         intrinsic = batch['meta'].cuda()
         box = batch['box']
 
-        pred = model(rgb, depth, intrinsic, box)
+        preds = model(rgb, depth, intrinsic, box)
 
-        return pred
+        labels = []
+        for single_box, pred in zip(box, preds):
+            single_box = single_box.cuda().long()
+            label = torch.zeros(rgb.shape[1:-1]).cuda()
+            conf = torch.zeros(rgb.shape[1:-1]).cuda() # confidence
+            mask = torch.ones(rgb.shape[1:-1]).cuda().bool()
+            for (x1, y1, x2, y2, lbl), pred_seg in zip(single_box, pred):
+                # if x1 >= x2-1 or y1 >= y2-1: continue
+                pred_seg = pred_seg.squeeze(-1)
+                label[x1 : x2, y1 : y2] = lbl * (pred_seg > conf[x1 : x2, y1 : y2])
+                conf[x1 : x2, y1 : y2] = torch.maximum(pred_seg, conf[x1 : x2, y1 : y2])
+                mask[x1 : x2, y1 : y2] *= (pred_seg <= 0)
+            label[mask] = 79
+            labels.append(label)
+        labels = torch.stack(labels, 0)
+                
+        return labels
 
     if test:
         return test_model_fn

@@ -3,9 +3,13 @@
 !/datasets/*.py
 /examples
 /submission
+/visualization
 /scripts/*.sh
 /outputs
 /torchsparse-1.2.0
+/detectron2-main
 *.zip
 /exp
 __pycache__/
+**.log
+/output

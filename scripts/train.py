@@ -9,8 +9,8 @@ from utils.util import checkpoint_save, checkpoint_restore
 from utils.log import init
 from utils.eval import evaluate
 
-Total_epochs = 300
-EVAL_FREQ = 5
+Total_epochs = 30
+EVAL_FREQ = 1
 TAG = ''
 
 def train_epoch(train_loader, model, model_fn, optimizer, exp_path, epoch):
@@ -43,31 +43,32 @@ def train_epoch(train_loader, model, model_fn, optimizer, exp_path, epoch):
         
     checkpoint_save(model, exp_path, TAG, logger, epoch, 16, use_cuda)
         
-def eval_epoch(val_loader, model, model_fn, epoch):
+def eval_epoch(val_loader, model, model_fn, test_model_fn, epoch):
     logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
 
     with torch.no_grad():
         model.eval()
         lossavg = 0
-        # gts = []
-        # preds = []
+        gts = []
+        preds = []
         for batch in tqdm(val_loader):
             ##### prepare input and forward
             loss, pred = model_fn(batch, model)
+            labels = test_model_fn(batch, model)
             lossavg += loss.item()
 
             gt = batch["gt"].numpy()
-            # pred = pred.cpu().numpy()
-            # gts.append(gt)
-            # preds.append(pred)
+            labels = labels.cpu().numpy()
+            gts.append(gt)
+            preds.append(labels)
 
-        # _, mAcc, _, mIoU = evaluate(gts, preds)
+        _, mAcc, _, mIoU = evaluate(gts, preds)
         lossavg /= len(val_loader)
-        logger.info("epoch: {}/{}, val loss: {:.4f}".format(epoch, Total_epochs, lossavg/len(val_loader)))
-        # logger.info("epoch: {}/{}, val loss: {:.4f}, mean accuracy: {:.4f}, mean IoU: {:.4f}".format(epoch, Total_epochs, lossavg/len(val_loader), mAcc, mIoU))
-        # writer.add_scalar('loss_val', lossavg, epoch)
-        # writer.add_scalar('Mean acc', mAcc, epoch)
-        # writer.add_scalar('Mean IoU', mIoU, epoch)
+        # logger.info("epoch: {}/{}, val loss: {:.4f}".format(epoch, Total_epochs, lossavg/len(val_loader)))
+        logger.info("epoch: {}/{}, val loss: {:.4f}, mean accuracy: {:.4f}, mean IoU: {:.4f}".format(epoch, Total_epochs, lossavg/len(val_loader), mAcc, mIoU))
+        writer.add_scalar('loss_val', lossavg, epoch)
+        writer.add_scalar('Mean acc', mAcc, epoch)
+        writer.add_scalar('Mean IoU', mIoU, epoch)
 
 if __name__ == '__main__':
     
@@ -77,6 +78,7 @@ if __name__ == '__main__':
     opt = parser.parse_args()
     TAG = opt.tag
     TOY = opt.toy
+    if TOY and TAG == '': TAG = 'toy'
     exp_path = os.path.join('exp/FrustumSegmentationNet', TAG)
 
     start = time.time()
@@ -87,12 +89,13 @@ if __name__ == '__main__':
     global writer
     writer = SummaryWriter(exp_path)
 
-    from model.FrustumSegmentationNet import FrustumSegmentationNet as Network
-    from model.FrustumSegmentationNet import model_fn_decorator
+    from model.FrustumSegmentationNet_v2 import FrustumSegmentationNet as Network
+    from model.FrustumSegmentationNet_v2 import model_fn_decorator
     from lib.dataloader import Dataset
     
     model = Network()
     model_fn = model_fn_decorator()
+    test_model_fn = model_fn_decorator(test=True)
 
     use_cuda = torch.cuda.is_available()
     logger.info('cuda available: {}'.format(use_cuda))
@@ -124,10 +127,10 @@ if __name__ == '__main__':
         train_epoch(dataset_.train_data_loader, model, model_fn, optimizer, exp_path, epoch)
 
         if epoch % EVAL_FREQ == 0:
-            eval_epoch(dataset_.val_data_loader, model, model_fn, epoch)
+            eval_epoch(dataset_.val_data_loader, model, model_fn, test_model_fn, epoch)
     
     if start_epoch == Total_epochs + 1:
-        eval_epoch(dataset_.val_data_loader, model, model_fn, Total_epochs)
+        eval_epoch(dataset_.val_data_loader, model, model_fn, test_model_fn, Total_epochs)
 
 """
 python scripts/train.py --tag test

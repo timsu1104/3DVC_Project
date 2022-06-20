@@ -71,6 +71,7 @@ if __name__ == '__main__':
     ##### resume
     start_epoch = checkpoint_restore(model, exp_path, 'FPN', logger, use_cuda)      # resume from the latest epoch, or specify the epoch to restore
     end_model = time.time()
+    print(model.roi_heads.box_predictor.bbox_pred.weight)
     
     test(model, dataset_.test_data_loader)
     # model = fasterrcnn_resnet50_fpn(pretrained=True)

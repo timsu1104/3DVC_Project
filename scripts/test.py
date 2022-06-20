@@ -1,50 +1,44 @@
 import torch
-import sys, os, json, argparse
+import sys, os, argparse
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 
 sys.path.append(os.getcwd())
-from utils.util import checkpoint_save, checkpoint_restore
+from utils.util import checkpoint_restore
 from utils.log import init
+from lib.dump_helper import dump_result
 
 NUM_OBJECTS = 79
 
 def test(model, model_fn, exp_path, dataloader):
     logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
 
+    preds = []
     with torch.no_grad():
-        model = model.eval()
-        preds = {}
+        model.eval()
         for batch in tqdm(dataloader):
             pred = model_fn(batch, model)
-
-            # Reformat Pred
-            scene_name = batch["scene_name"] # (B, )
-
-            for pred_pose, name in zip(pred, scene_name):
-                preds[name] = pred_pose.tolist()
-        with open(os.path.join(exp_path, 'test_result.json'), "w") as f:
-            json.dump(preds, f)
+            preds.append(pred)
+        preds = torch.cat(preds, 0)
+    return preds
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--tag', help='', default='')
-    parser.add_argument('--label', help='0-78', default='0')
     opt = parser.parse_args()
     TAG = opt.tag
-    LBL = opt.label
-    exp_path = os.path.join('exp/PointNet', TAG, LBL)
+    exp_path = os.path.join('exp/FrustumSegmentationNet', TAG)
 
     global logger
-    logger = init(os.path.join('PointNet', TAG), split='test')
+    logger = init(os.path.join('FrustumSegmentationNet', TAG), split='test')
 
     # summary writer
     global writer
     writer = SummaryWriter(exp_path)
 
-    from model.FrustumSegmentationNet import FrustumSegmentationNet as Network
-    from model.FrustumSegmentationNet import model_fn_decorator
+    from model.FrustumSegmentationNet_v2 import FrustumSegmentationNet as Network
+    from model.FrustumSegmentationNet_v2 import model_fn_decorator
     from lib.dataloader import Dataset
     
     model = Network()
@@ -60,13 +54,14 @@ if __name__ == '__main__':
 
     ##### dataset
     dataset_ = Dataset()
-    dataset_.testLoader(logger, LBL)
+    dataset_.testLoader(logger)
 
     ##### load model
     checkpoint_restore(model, exp_path, TAG, logger, use_cuda)
 
     ##### evaluate
-    test(model, model_fn, exp_path, dataset_.test_data_loader)
+    preds = test(model, model_fn, exp_path, dataset_.test_data_loader)
+    dump_result(preds)
 
 """
 python scripts/test.py --tag firstversion --label 0

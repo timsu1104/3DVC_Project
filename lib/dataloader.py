@@ -12,7 +12,7 @@ NUM_OBJECTS = 79
 
 class Dataset:
     def __init__(self): 
-        self.batch_size = 8
+        self.batch_size = 4
         self.train_workers = 4
         self.val_workers = 4
         self.test_workers = 4
@@ -22,14 +22,14 @@ class Dataset:
             f_train = get_split_files('train', prefix="datasets/")
             self.train_files = [torch.load(data) for data in tqdm(f_train[:100])]
         else:
-            f_train = sorted(glob.glob(os.path.join('datasets/training_data/data/train', "1*_data_aggregated.pth")))
-            self.train_files = []
-            for f in f_train:
-                print("Loading", f)
-                rgbs, depths, labels, intrinsics, boxs = torch.load(f)
-                print("Loaded", f)
-                for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
-                    self.train_files.append([rgb, depth, label, intrinsic, box])
+            # f_train = sorted(glob.glob(os.path.join('datasets/training_data/data/train', "1*_data_aggregated.pth")))
+            # self.train_files = []
+            # for f in tqdm(f_train):
+            #     rgbs, depths, labels, intrinsics, boxs = torch.load(f)
+            #     for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
+            #         self.train_files.append([rgb, depth, label, intrinsic, box])
+            f_train = get_split_files('train', prefix="datasets/")
+            self.train_files = [torch.load(data) for data in tqdm(f_train[:15000])]
 
         logger.info('Training samples: {}'.format(len(self.train_files)))
         assert len(self.train_files) > 0
@@ -40,14 +40,16 @@ class Dataset:
     def valLoader(self, logger, TOY):
         if TOY:
             f_val = get_split_files('val', prefix="datasets/")
-            self.val_files = [torch.load(data) for data in tqdm(f_val[:20])]
+            self.val_files = [torch.load(data) for data in tqdm(f_val)]
         else:
-            f_val = sorted(glob.glob(os.path.join('datasets/training_data/data/val', "*_data_aggregated.pth")))
-            self.val_files = []
-            for f in f_val:
-                rgbs, depths, labels, intrinsics, boxs = torch.load(f)
-                for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
-                    self.val_files.append([rgb, depth, label, intrinsic, box])
+            # f_val = sorted(glob.glob(os.path.join('datasets/training_data/data/val', "*_data_aggregated.pth")))
+            # self.val_files = []
+            # for f in f_val:
+            #     rgbs, depths, labels, intrinsics, boxs = torch.load(f)
+            #     for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
+            #         self.val_files.append([rgb, depth, label, intrinsic, box])
+            f_val = get_split_files('val', prefix="datasets/")
+            self.val_files = [torch.load(data) for data in tqdm(f_val[:500])]
 
         logger.info('Validation samples: {}'.format(len(self.val_files)))
         assert len(self.val_files) > 0
@@ -204,7 +206,7 @@ class Dataset:
         depths = []
         metas = []
         boxes = []
-        scores = []
+        # scores = []
         for idx in id:
             rgb, depth, intrinsic, pred = self.test_files[idx]
             box, label, score = pred
@@ -212,8 +214,9 @@ class Dataset:
             rgbs.append(rgb)
             depths.append(depth)
             metas.append(intrinsic)
-            boxes.append(box)
-            scores.append(score)
+            if score >= 0.5:
+                boxes.append(box)
+            # scores.append(score)
         
         rgbs = torch.stack(rgbs, 0)
         depths = torch.stack(depths, 0)
@@ -226,5 +229,5 @@ class Dataset:
             "depth": depths, 
             "meta": metas,
             "box": boxes,
-            "score": scores
+            # "score": scores
             }

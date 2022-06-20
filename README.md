@@ -5,6 +5,8 @@ Zhengyuan Su, 2021010812, Yao Class 12, Tsinghua University
 ## Introduction
 This repo contains source code of Final Project of the course 3D Visual Computing 2022. 
 
+I use Fast R-CNN to generate boxes and Frustum PointNet to segment the instances. 
+
 ## Step 1. Preparing Data
 To prepare the data, we generally obey the process of origin. Here are the steps: 
 
@@ -40,10 +42,12 @@ cd ..
 ```bash
 cd datasets
 python prepare_data.py --data_split train
+python prepare_data_detection.py --data_split train
 python Aggregate_data.py --data_split train
 python Aggregate_data.py --data_split val
 
 python prepare_data.py --data_split test
+python prepare_data_detection.py --data_split test
 python Aggregate_data.py --data_split test
 cd ..
 ```
@@ -55,12 +59,13 @@ The code is tested on PyTorch 1.9.0+cu111.
 To train the model, run
 ```bash
 python scripts/Proposal_train.py
-python scripts/train.py --tag simple_pointnet
+python scripts/train.py --tag Complete_version
+# CUDA_VISIBLE_DEVICES=4 python scripts/train.py --tag complexer_pointnet
 ```
 To evaluate on test set, run
 ```bash
 CUDA_VISIBLE_DEVICES=7 python scripts/Proposal_test.py
-python scripts/test.py
+python scripts/test.py --tag Complete_version
 ```
 Note: when training, passing a ```--toy``` can force the model to use a reduced set of data (100 for training and 20 for validation). 
 
@@ -69,4 +74,5 @@ Note: when training, passing a ```--toy``` can force the model to use a reduced 
 Tensorboard monitoring is supported. To use it, run 
 ```bash
 tensorboard --logdir exp/FrustumSegmentationNet --bind_all
+tensorboard --logdir exp/FPN --bind_all
 ```
