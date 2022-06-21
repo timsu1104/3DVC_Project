@@ -12,4 +12,5 @@
 /exp
 __pycache__/
 **.log
+**.ipynb
 /output

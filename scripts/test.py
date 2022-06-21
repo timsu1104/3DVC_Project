@@ -26,12 +26,14 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--tag', help='', default='')
+    parser.add_argument('--epoch', help='', type=int, default=0)
     opt = parser.parse_args()
     TAG = opt.tag
+    Epoch = opt.epoch
     exp_path = os.path.join('exp/FrustumSegmentationNet', TAG)
 
     global logger
-    logger = init(os.path.join('FrustumSegmentationNet', TAG), split='test')
+    logger = init(os.path.join('FrustumSegmentationNet', TAG, 'test'))
 
     # summary writer
     global writer
@@ -57,7 +59,7 @@ if __name__ == '__main__':
     dataset_.testLoader(logger)
 
     ##### load model
-    checkpoint_restore(model, exp_path, TAG, logger, use_cuda)
+    checkpoint_restore(model, exp_path, TAG, logger, use_cuda, epoch=Epoch)
 
     ##### evaluate
     preds = test(model, model_fn, exp_path, dataset_.test_data_loader)

@@ -26,15 +26,17 @@ def vis(rgb_file, label_file):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--id', help='', type=int, default=-1)
+    parser.add_argument('--id', help='', type=str, default='')
     opt = parser.parse_args()
     id = opt.id
     sys.path.append(os.getcwd())
+    if not os.path.exists('visualization/'):
+        os.mkdir('visualization/')
     from utils.util import get_split_files
     files = get_split_files('test', prefix='datasets/')
-    if id == -1:
+    if id == '':
         for fn in tqdm(files):
             vis(fn[:-9] + 'color_kinect.png', fn[:-9] + 'label_kinect.png')
     else:
-        fn = files[id]
+        fn = 'datasets/testing_data/data/' + id + '_datas.pth'
         vis(fn[:-9] + 'color_kinect.png', fn[:-9] + 'label_kinect.png')

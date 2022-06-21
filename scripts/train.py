@@ -9,8 +9,8 @@ from utils.util import checkpoint_save, checkpoint_restore
 from utils.log import init
 from utils.eval import evaluate
 
-Total_epochs = 30
-EVAL_FREQ = 1
+Total_epochs = 300
+EVAL_FREQ = 3
 TAG = ''
 
 def train_epoch(train_loader, model, model_fn, optimizer, exp_path, epoch):

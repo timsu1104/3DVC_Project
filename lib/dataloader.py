@@ -29,7 +29,7 @@ class Dataset:
             #     for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
             #         self.train_files.append([rgb, depth, label, intrinsic, box])
             f_train = get_split_files('train', prefix="datasets/")
-            self.train_files = [torch.load(data) for data in tqdm(f_train[:15000])]
+            self.train_files = [torch.load(data) for data in tqdm(f_train)]
 
         logger.info('Training samples: {}'.format(len(self.train_files)))
         assert len(self.train_files) > 0
@@ -40,7 +40,7 @@ class Dataset:
     def valLoader(self, logger, TOY):
         if TOY:
             f_val = get_split_files('val', prefix="datasets/")
-            self.val_files = [torch.load(data) for data in tqdm(f_val)]
+            self.val_files = [torch.load(data) for data in tqdm(f_val[:20])]
         else:
             # f_val = sorted(glob.glob(os.path.join('datasets/training_data/data/val', "*_data_aggregated.pth")))
             # self.val_files = []
@@ -49,27 +49,13 @@ class Dataset:
             #     for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
             #         self.val_files.append([rgb, depth, label, intrinsic, box])
             f_val = get_split_files('val', prefix="datasets/")
-            self.val_files = [torch.load(data) for data in tqdm(f_val[:500])]
+            self.val_files = [torch.load(data) for data in tqdm(f_val)]
 
         logger.info('Validation samples: {}'.format(len(self.val_files)))
         assert len(self.val_files) > 0
 
         val_set = list(range(len(self.val_files)))
         self.val_data_loader = DataLoader(val_set, batch_size=self.batch_size, collate_fn=self.valMerge, num_workers=self.val_workers, shuffle=True, sampler=None, drop_last=True, pin_memory=True)    
-    
-    def fpn_testLoader(self, logger):
-        f_test = sorted(glob.glob(os.path.join('datasets/testing_data/data/test', "*_data_aggregated.pth")))
-        self.test_files = []
-        for f in f_test:
-            rgbs, depths, intrinsics = torch.load(f)
-            for rgb, depth, intrinsic in zip(rgbs, depths, intrinsics):
-                self.test_files.append([rgb, depth, intrinsic])
-
-        logger.info('Testing samples: {}'.format(len(self.test_files)))
-        assert len(self.test_files) > 0
-
-        test_set = list(range(len(self.test_files)))
-        self.test_data_loader = DataLoader(test_set, batch_size=self.batch_size, collate_fn=self.fpn_testMerge, num_workers=self.test_workers, shuffle=True, sampler=None, drop_last=True, pin_memory=True)
 
     def testLoader(self, logger):
         f_test = sorted(glob.glob(os.path.join('datasets/testing_data/data/test', "*_data_aggregated.pth")))
@@ -85,7 +71,7 @@ class Dataset:
         assert len(self.test_files) > 0
 
         test_set = list(range(len(self.test_files)))
-        self.test_data_loader = DataLoader(test_set, batch_size=self.batch_size, collate_fn=self.testMerge, num_workers=self.test_workers, shuffle=True, sampler=None, drop_last=True, pin_memory=True)    
+        self.test_data_loader = DataLoader(test_set, batch_size=self.batch_size, collate_fn=self.testMerge, num_workers=self.test_workers, shuffle=False, sampler=None, drop_last=True, pin_memory=True)    
 
     def trainMerge(self, id):
         rgbs = []
@@ -181,42 +167,31 @@ class Dataset:
             "gt": labels
             }
 
-    def fpn_testMerge(self, id):
-        rgbs = []
-        depths = []
-        metas = []
-        for idx in id:
-            rgb, depth, intrinsic = self.test_files[idx]
-            rgbs.append(rgb)
-            depths.append(depth)
-            metas.append(intrinsic)
-        
-        rgbs = torch.stack(rgbs, 0)
-        depths = torch.stack(depths, 0)
-        metas = torch.stack(metas, 0)
-
-        return {
-            "rgb": rgbs, 
-            "depth": depths, 
-            "meta": metas
-            }
-    
     def testMerge(self, id):
         rgbs = []
         depths = []
         metas = []
         boxes = []
-        # scores = []
+        scores = []
         for idx in id:
             rgb, depth, intrinsic, pred = self.test_files[idx]
             box, label, score = pred
-            box = torch.cat([box, label.unsqueeze(1)], dim=1)
+            box = torch.tensor(box)
+            label = torch.tensor(label).long()
+            score = torch.tensor(score)
+            box = torch.cat([box[:, torch.tensor([1, 0, 3, 2])], label.unsqueeze(1)], dim=1)
             rgbs.append(rgb)
             depths.append(depth)
             metas.append(intrinsic)
-            if score >= 0.5:
-                boxes.append(box)
-            # scores.append(score)
+            torch._assert(
+                len(box) > 0 and score.max() > 0.3,
+                f"{score} {score.max()}"
+            )
+            box = box[score > 0.3]
+            if box.size(0) > 10:
+                box = box[:10]
+            boxes.append(box)
+            scores.append(score)
         
         rgbs = torch.stack(rgbs, 0)
         depths = torch.stack(depths, 0)
@@ -229,5 +204,5 @@ class Dataset:
             "depth": depths, 
             "meta": metas,
             "box": boxes,
-            # "score": scores
+            "score": scores
             }

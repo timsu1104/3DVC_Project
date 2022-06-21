@@ -43,36 +43,56 @@ cd ..
 cd datasets
 python prepare_data.py --data_split train
 python prepare_data_detection.py --data_split train
-python Aggregate_data.py --data_split train
-python Aggregate_data.py --data_split val
+# python Aggregate_data.py --data_split train
+# python Aggregate_data.py --data_split val
 
 python prepare_data.py --data_split test
 python prepare_data_detection.py --data_split test
-python Aggregate_data.py --data_split test
+# python Aggregate_data.py --data_split test
 cd ..
 ```
 
 ## Step 2. Environment Requirement
-The code is tested on PyTorch 1.9.0+cu111. 
+The code is tested on PyTorch 1.9.0+cu111 with python 3.7.0. 
+
+Detectron2 by facebookAIResearch is used for 2D detectron. To install it, run
+```bash
+python -m pip install 'git+https://github.com/facebookresearch/detectron2.git'
+```
+or to install locally, run
+```bash
+git clone https://github.com/facebookresearch/detectron2.git
+python -m pip install -e detectron2
+```
+Please refer to [Detectron2 0.6 documentation](https://detectron2.readthedocs.io/en/latest/tutorials/install.html) for more detail information. 
 
 ## Step 3. Training
+The model consists of two part, a 2D detection part and a 3D segmentation part. Both are trained with full supervision. 
+
 To train the model, run
 ```bash
-python scripts/Proposal_train.py
-python scripts/train.py --tag Complete_version
-# CUDA_VISIBLE_DEVICES=4 python scripts/train.py --tag complexer_pointnet
+python scripts/detection.py
+python scripts/train.py --tag complexer_pointnet
 ```
+
+Tensorboard monitoring is supported. To use it, run 
+```bash
+tensorboard --logdir exp/FrustumSegmentationNet --bind_all
+tensorboard --logdir output --bind_all
+```
+
 To evaluate on test set, run
 ```bash
-CUDA_VISIBLE_DEVICES=7 python scripts/Proposal_test.py
-python scripts/test.py --tag Complete_version
+python scripts/generate_test.py > detection_output.log
+python scripts/test.py --tag complexer_pointnet --epoch 32
 ```
 Note: when training, passing a ```--toy``` can force the model to use a reduced set of data (100 for training and 20 for validation). 
 
 
-## Step 4. Monitoring
-Tensorboard monitoring is supported. To use it, run 
+## Step 4. Visualization
+To visualize the result, run 
 ```bash
-tensorboard --logdir exp/FrustumSegmentationNet --bind_all
-tensorboard --logdir exp/FPN --bind_all
+python scripts/visual.py --id $ID
 ```
+where $ID should be replaced with the prefix of a specific testing data (e.g. 1-4-25). If $ID=```''```, then all testing result would be visualized. 
+The output directory is ```visualization/```
