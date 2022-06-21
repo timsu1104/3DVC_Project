@@ -14,3 +14,4 @@ __pycache__/
 **.log
 **.ipynb
 /output
+*.tar.gz
