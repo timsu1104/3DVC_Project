@@ -17,12 +17,13 @@ def vis(rgb_file, label_file):
     p = rgb_file.split('/')[-1].split('_')[0]
     rgb = np.array(Image.open(rgb_file)) / 255   # convert 0-255 to 0-1
     label = np.array(Image.open(label_file))
-    plt.figure(figsize=(15, 10))
+    plt.figure(figsize=(30, 75))
     plt.subplot(1, 3, 1)
     plt.imshow(rgb)
     plt.subplot(1, 3, 2)
     plt.imshow(COLOR_PALETTE[label])  # draw colorful segmentation
     plt.savefig('visualization/' + p + '_visualization.png')
+    plt.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

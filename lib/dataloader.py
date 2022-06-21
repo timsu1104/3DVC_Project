@@ -1,5 +1,4 @@
-import sys, os, glob, numpy as np
-from tqdm.contrib import tzip
+import sys, os, glob
 from tqdm import tqdm
 import torch
 import json
@@ -17,17 +16,11 @@ class Dataset:
         self.val_workers = 4
         self.test_workers = 4
     
-    def trainLoader(self, logger, TOY):
+    def trainLoader(self, logger, TOY=False):
         if TOY:
             f_train = get_split_files('train', prefix="datasets/")
             self.train_files = [torch.load(data) for data in tqdm(f_train[:100])]
         else:
-            # f_train = sorted(glob.glob(os.path.join('datasets/training_data/data/train', "1*_data_aggregated.pth")))
-            # self.train_files = []
-            # for f in tqdm(f_train):
-            #     rgbs, depths, labels, intrinsics, boxs = torch.load(f)
-            #     for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
-            #         self.train_files.append([rgb, depth, label, intrinsic, box])
             f_train = get_split_files('train', prefix="datasets/")
             self.train_files = [torch.load(data) for data in tqdm(f_train)]
 
@@ -37,17 +30,11 @@ class Dataset:
         train_set = list(range(len(self.train_files)))
         self.train_data_loader = DataLoader(train_set, batch_size=self.batch_size, collate_fn=self.trainMerge, num_workers=self.train_workers, shuffle=True, sampler=None, drop_last=True, pin_memory=True)    
     
-    def valLoader(self, logger, TOY):
+    def valLoader(self, logger, TOY=False):
         if TOY:
             f_val = get_split_files('val', prefix="datasets/")
             self.val_files = [torch.load(data) for data in tqdm(f_val[:20])]
         else:
-            # f_val = sorted(glob.glob(os.path.join('datasets/training_data/data/val', "*_data_aggregated.pth")))
-            # self.val_files = []
-            # for f in f_val:
-            #     rgbs, depths, labels, intrinsics, boxs = torch.load(f)
-            #     for rgb, depth, label, intrinsic, box in zip(rgbs, depths, labels, intrinsics, boxs):
-            #         self.val_files.append([rgb, depth, label, intrinsic, box])
             f_val = get_split_files('val', prefix="datasets/")
             self.val_files = [torch.load(data) for data in tqdm(f_val)]
 
@@ -84,12 +71,6 @@ class Dataset:
             if rgb.size(0) == 0 or rgb.size(1) == 0:
                 continue
             assert len(box.shape) == 2
-            # new_box = []
-            # for single_box in box:
-            #     for x1, y1, x2, y2, lbl in single_box:
-            #         if x2 > x1 and y2 > y1:
-            #             new_box.append([x1, y1, x2, y2, lbl])
-            # new_box = torch.tensor(new_box)
             x_diff = box[:, 2] - box[:, 0]
             y_diff = box[:, 3] - box[:, 1]
             lbl = box[:, 4]
@@ -183,10 +164,6 @@ class Dataset:
             rgbs.append(rgb)
             depths.append(depth)
             metas.append(intrinsic)
-            torch._assert(
-                len(box) > 0 and score.max() > 0.3,
-                f"{score} {score.max()}"
-            )
             box = box[score > 0.3]
             if box.size(0) > 10:
                 box = box[:10]
@@ -196,8 +173,6 @@ class Dataset:
         rgbs = torch.stack(rgbs, 0)
         depths = torch.stack(depths, 0)
         metas = torch.stack(metas, 0)
-        # boxes = torch.stack(boxes, 0)
-        # scores = torch.stack(scores, 0)
 
         return {
             "rgb": rgbs, 

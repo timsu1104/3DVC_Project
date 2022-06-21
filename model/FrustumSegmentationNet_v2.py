@@ -66,21 +66,12 @@ class FrustumSegmentationNet(nn.Module):
         """
         segments = []
         for bind, single_box in enumerate(box):
-            # if len(single_box) == 0: continue
-            torch._assert(
-                len(single_box) != 0,
-                "Box Error! {}".format(box)
-            )
             single_box = single_box.cuda().long()
             segs = []
             for x1, y1, x2, y2, _ in single_box:
-                if x1 >= x2-1 or y1 >= y2-1: continue
+                # if x1 >= x2-1 or y1 >= y2-1: continue
                 # Cropping and lifting
                 cropped_pc = self.image2pc(depth[bind, x1 : x2, y1 : y2], intrinsic[bind])
-                torch._assert(
-                    cropped_pc.size(0) > 0,
-                    f"{x1} {x2} {y1} {y2} {depth[bind].size()}"
-                )
 
                 # 3D PointCloud Segmentation
                 x = torch.cat([cropped_pc, rgb[bind, x1 : x2, y1 : y2]], dim=-1)
@@ -104,7 +95,7 @@ class FrustumSegmentationNet(nn.Module):
         return segments
         
 
-def model_fn_decorator(test=False):
+def model_fn_decorator(val=False, test=False):
     def model_fn(batch, model):
         rgb = batch['rgb'].cuda()
         depth = batch['depth'].cuda()
@@ -113,7 +104,6 @@ def model_fn_decorator(test=False):
         gt = batch['gt'].cuda().long()
         gt.clamp_(max=79)
 
-        # Criterion = nn.CrossEntropyLoss()
         preds = model(rgb, depth, intrinsic, box)
 
         loss = 0
@@ -122,10 +112,40 @@ def model_fn_decorator(test=False):
             for (x1, y1, x2, y2, lbl), pred_seg in zip(single_box, pred):
                 # if x1 >= x2-1 or y1 >= y2-1: continue
                 crop = label[x1 : x2, y1 : y2]
-                loss = loss + (torch.sum(1 - pred_seg[crop == lbl]) + torch.sum(1 + pred_seg[crop != lbl])) / ((x2 - x1) * (y2 - y1))
+                try:
+                    loss = loss + (torch.sum(1 - pred_seg[crop == lbl]) + torch.sum(1 + pred_seg[crop != lbl])) / ((x2 - x1) * (y2 - y1))
+                except:
+                    print(crop.size(), lbl, pred_seg.size(), x1, x2, y1, y2)
+                    assert False
 
         return loss, pred
-        
+    
+    def val_model_fn(batch, model):
+        rgb = batch['rgb'].cuda()
+        depth = batch['depth'].cuda()
+        intrinsic = batch['meta'].cuda()
+        box = batch['box']
+
+        preds = model(rgb, depth, intrinsic, box)
+
+        labels = []
+        for single_box, pred in zip(box, preds):
+            single_box = single_box.cuda().long()
+            label = torch.zeros(rgb.shape[1:-1]).cuda()
+            conf = torch.zeros(rgb.shape[1:-1]).cuda() # confidence
+            mask = torch.ones(rgb.shape[1:-1]).cuda().bool()
+            for (x1, y1, x2, y2, lbl), pred_seg in zip(single_box, pred):
+                # if x1 >= x2-1 or y1 >= y2-1: continue
+                label[x1 : x2, y1 : y2] = lbl * (pred_seg > conf[x1 : x2, y1 : y2])
+                conf[x1 : x2, y1 : y2] = torch.maximum(pred_seg, conf[x1 : x2, y1 : y2])
+                mask[x1 : x2, y1 : y2] *= (pred_seg <= 0)
+            label[mask] = 79
+            labels.append(label)
+        labels = torch.stack(labels, 0)
+                
+        return labels
+
+
     def test_model_fn(batch, model):
         rgb = batch['rgb'].cuda()
         depth = batch['depth'].cuda()
@@ -144,10 +164,6 @@ def model_fn_decorator(test=False):
             mask = torch.ones(rgb.shape[1:-1]).cuda().bool()
             for (x1, y1, x2, y2, lbl), scr, pred_seg in zip(single_box, single_score, pred):
                 if x1 >= x2-1 or y1 >= y2-1: continue
-                torch._assert(
-                    (pred_seg > conf[x1 : x2, y1 : y2]).size() == label[x1 : x2, y1 : y2].size(),
-                    f"{pred_seg.size()}, {conf[x1 : x2, y1 : y2].size()}, {lbl.size()}, {x1} {x2} {y1} {y2}"
-                )
                 label[x1 : x2, y1 : y2] = lbl * (scr * pred_seg > conf[x1 : x2, y1 : y2])
                 conf[x1 : x2, y1 : y2] = torch.maximum(scr * pred_seg, conf[x1 : x2, y1 : y2])
                 mask[x1 : x2, y1 : y2] *= (pred_seg <= 0)
@@ -159,4 +175,6 @@ def model_fn_decorator(test=False):
 
     if test:
         return test_model_fn
+    if val:
+        return val_model_fn
     return model_fn

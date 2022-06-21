@@ -5,7 +5,7 @@ Zhengyuan Su, 2021010812, Yao Class 12, Tsinghua University
 ## Introduction
 This repo contains source code of Final Project of the course 3D Visual Computing 2022. 
 
-I use Fast R-CNN to generate boxes and Frustum PointNet to segment the instances. 
+I use Retina Net to generate boxes and Frustum PointNet to segment the instances. 
 
 ## Step 1. Preparing Data
 To prepare the data, we generally obey the process of origin. Here are the steps: 
@@ -43,17 +43,19 @@ cd ..
 cd datasets
 python prepare_data.py --data_split train
 python prepare_data_detection.py --data_split train
-# python Aggregate_data.py --data_split train
-# python Aggregate_data.py --data_split val
-
 python prepare_data.py --data_split test
 python prepare_data_detection.py --data_split test
-# python Aggregate_data.py --data_split test
 cd ..
 ```
 
 ## Step 2. Environment Requirement
 The code is tested on PyTorch 1.9.0+cu111 with python 3.7.0. 
+
+First of all, run
+```bash
+pip install -r requirements.txt
+```
+to install some basic package. 
 
 Detectron2 by facebookAIResearch is used for 2D detectron. To install it, run
 ```bash
@@ -71,8 +73,13 @@ The model consists of two part, a 2D detection part and a 3D segmentation part. 
 
 To train the model, run
 ```bash
-python scripts/detection.py
-python scripts/train.py --tag complexer_pointnet
+python scripts/detection.py > detection_train_output.log
+python scripts/train.py --tag $TAG
+```
+
+To evaluate on a specific version of model, run
+```bash
+python scripts/evaluation.py --tag $TAG --epoch $EPOCH
 ```
 
 Tensorboard monitoring is supported. To use it, run 
@@ -83,11 +90,10 @@ tensorboard --logdir output --bind_all
 
 To evaluate on test set, run
 ```bash
-python scripts/generate_test.py > detection_output.log
+python scripts/generate_test.py > detection_test_output.log
 python scripts/test.py --tag complexer_pointnet --epoch 32
 ```
-Note: when training, passing a ```--toy``` can force the model to use a reduced set of data (100 for training and 20 for validation). 
-
+Note: when training, passing a ```--toy``` option can force the model to use a reduced set of data (100 for training and 20 for validation). 
 
 ## Step 4. Visualization
 To visualize the result, run 
@@ -95,4 +101,4 @@ To visualize the result, run
 python scripts/visual.py --id $ID
 ```
 where $ID should be replaced with the prefix of a specific testing data (e.g. 1-4-25). If $ID=```''```, then all testing result would be visualized. 
-The output directory is ```visualization/```
+The output directory is `visualization/`

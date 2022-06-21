@@ -1,7 +1,3 @@
-'''
-Modified from SparseConvNet data preparation: https://github.com/facebookresearch/SparseConvNet/blob/master/examples/ScanNet/prepare_data.py
-'''
-
 import glob, numpy as np, multiprocessing as mp, torch, argparse
 import torch
 from PIL import Image

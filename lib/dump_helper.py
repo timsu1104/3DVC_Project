@@ -5,7 +5,7 @@ from PIL import Image
 sys.path.append(os.getcwd())
 from utils.util import get_split_files
 
-def dump_result(labels, output_path='test'):
+def dump_result(labels):
     files = get_split_files('test', prefix='datasets/')
     torch._assert(
         labels.size(0) == len(files),

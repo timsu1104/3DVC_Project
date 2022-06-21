@@ -66,8 +66,8 @@ def f(fn_c):
     dict['annotations'] = objs
 
     print('Saving to ' + fn[:-16]+'datas.json')
-    # with open(output_f, 'w') as f:
-    #     json.dump(dict, f)
+    with open(output_f, 'w') as f:
+        json.dump(dict, f)
 
 target = [[f, i] for i, f in enumerate(files)]
 
